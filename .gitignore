@@ -1,4 +1,5 @@
 .history
-chart.md
-schedule.md
-schedule.json
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+__pycache__
