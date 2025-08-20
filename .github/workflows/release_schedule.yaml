@@ -1,0 +1,52 @@
+name: Generate release schedule artifacts
+on:
+  schedule:
+    # At 00:00 on day-of-month 1 in every 3rd month. (i.e. every quarter)
+    - cron: "0 0 1 */3 *"
+  # On demand
+  workflow_dispatch:
+
+jobs:
+  create-artifacts:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # We're going to make a tag that we can we release so we'll need the full history for that
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v5
+
+      - uses: prefix-dev/setup-pixi@v0.8.14
+        with:
+          pixi-version: "v0.49.0"
+          environments: schedule
+      - name: Run spec_zero_versions.py
+        run: |
+          pixi run -e schedule generate_schedule
+      - name: setup git
+        run: |
+          # git will complain if we don't do this first
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: determine tag name
+        id: tag_name
+        run: |
+          echo "TAG_NAME=$(date '+%Y-Q%q')" >> "$GITHUB_OUTPUT"
+
+      - name: Publish github release
+        uses: softprops/action-gh-release@v2
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          generate_release_notes: true
+          tag_name: ${{ steps.tag_name.outputs.TAG_NAME }}
+          make_latest: true
+          files: |
+            schedule.md
+            chart.md
+            schedule.json

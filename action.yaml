@@ -1,26 +1,72 @@
 name: "Generate SPEC-0000 Data"
 description: "Based on the current SPEC 0 schedule, generate a tarball with the latest versions of all packages."
+author: Scientific Python Developers
+inputs:
+  target_branch:
+    description: "Target branch for the pull request"
+    required: true
+    default: "main"
+  project_file_name: 
+    description: "The filename to the project file that lists your dependencies, relative to the repository root. Defaults to 'pyproject.toml' Curretnly only pyproject.toml is supported but others may be added."
+    required: true
+    default: "pyproject.toml"
+  create_pr: 
+    description: "Whether the action should open a PR or not. If this is set to false, this action should have no effect. This is mainly useful for testing"
+    required: true
+    default: true
+  schedule_path:
+    description: "Path to the schedule.json file. If it does not exist yet, it will be downloaded from the spec0-action repository latest release"
+    default: schedule.json
+  token:
+    description: "GitHub token with repo permissions to create pull requests"
+    required: true
 
 runs:
   using: "composite"
   steps:
-    - name: Set up Python
-      uses: actions/setup-python@v5
+    - name: Checkout code
+      uses: actions/checkout@v4
       with:
-        python-version: "3.13"
-    - name: Install dependencies
+        fetch-depth: 0
+
+    - name: Set up Git
       shell: bash
       run: |
-        pip install -r requirements.txt
-    - name: Run spec_zero_versions.py
+        git config user.name "Scientific Python [bot]"
+        git config user.email "scientific-python@users.noreply.github.com"
+
+    - name: Download schedule artifact
+      shell: bash
+      env:
+        SCHEDULE_FILE: ${{ inputs.schedule_path }}
+      run: |
+        if [ ! -f "$SCHEDULE_FILE" ]; then
+          gh release download -R "scientific-python/spec0-action" --pattern schedule.json -O "$SCHEDULE_FILE"
+        fi
+
+    - uses: prefix-dev/setup-pixi@v0.8.14
+      name: Setup pixi
+      with:
+        environments: >-
+          update
+        activate-environment: update
+        pixi-version: v0.49.0
+        manifest-path: ${{github.action_path}}/pyproject.toml
+
+    - name: Run Update script
       shell: bash
       run: |
-        python spec_zero_versions.py
-    - name: Upload files as an artifact
-      uses: actions/upload-artifact@v4
+        python ${{github.action_path}}/spec0-update.py "${{github.workspace}}/${{inputs.project_file_name}}" "${{inputs.schedule_path}}" 
+        # let's cleanup after ourselves so it doesn't end up in the PR
+        rm "${{inputs.schedule_path}}"
+
+    - name: Create Pull Request
+      if: ${{ inputs.create_pr == 'true' }}
+      uses: peter-evans/create-pull-request@v6
       with:
-        name: spec-zero-versions
-        path: |
-          schedule.json
-          schedule.md
-          chart.md
+        token: ${{ inputs.token }}
+        commit-message: "chore: Drop support for unsupported packages conform SPEC 0"
+        title: "Drop support for unsupported packages conform SPEC 0"
+        body: "This PR was created automatically"
+        base: ${{ inputs.target_branch }}
+        branch: update-spec-0-dependencies-${{ github.run_id }}
