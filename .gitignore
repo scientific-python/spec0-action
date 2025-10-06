@@ -2,3 +2,6 @@
 chart.md
 schedule.md
 schedule.json
+__pycache__
+*.pyc
+*.lock

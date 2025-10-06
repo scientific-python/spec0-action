@@ -4,30 +4,14 @@ on: [push, pull_request]
 jobs:
   generate_data:
     runs-on: ubuntu-latest
-    name: Generate version data
+    name: Run action on test file in repo
     steps:
       - name: Checkout
         uses: actions/checkout@v5
       - name: Generate version data using local action
         uses: ./
-      - name: Check file contents
-        run: |
-          printf "Contents of chart.md:\n"
-          cat chart.md
-          printf "\n\n"
-          printf "Contents of schedule.json:\n"
-          cat schedule.json
-          printf "\n\n"
-          printf "Contents of schedule.md:\n"
-          cat schedule.md
-          printf "\n\n"
-      - name: Remove generated files
-        run: |
-          printf "Removing generated files...\n"
-          rm -f chart.md schedule.json schedule.md
-          ls -R
-      - uses: actions/download-artifact@v5
-        with:
-          name: spec-zero-versions
-      - name: Display structure of downloaded files
-        run: ls -R
+        with: 
+          project_file_name: tests/test_data/pyproject.toml
+          create_pr: false
+          schedule_path: tests/test_data/test_schedule.json
+

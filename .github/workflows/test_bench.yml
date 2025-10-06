@@ -1,0 +1,21 @@
+name: Run the update test suite
+on:
+  push:
+    branches: main
+  pull_request:
+    branches: main
+  # On demand
+  workflow_dispatch:
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - uses: prefix-dev/setup-pixi@v0.9.0
+        with:
+          pixi-version: "v0.49.0"
+      - run: |
+          pixi run test
