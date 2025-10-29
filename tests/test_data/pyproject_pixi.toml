@@ -4,7 +4,12 @@ name            = "tests"
 description     = "This is just a dummy package for testing the spec 0 update github action and should not be used"
 requires-python = ">=3.10"
 version         = "0.1.0"
-dependencies    = ["ipython>=8.7.0,<4", "numpy[foo,bar]>=1.10.0,<2"]
+dependencies    = [
+    "ipython>=8.7.0,<4",
+    "numpy[foo,bar]>=1.10.0,<2",
+    "scikit-learn>1.2,<1.4;sys_platform=='win32'",
+    "scikit-learn>1.2;sys_platform!='win32'"
+]
 
 [build-system]
 build-backend = "hatchling.build"

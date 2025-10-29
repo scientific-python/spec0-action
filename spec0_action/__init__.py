@@ -23,7 +23,7 @@ def update_pyproject_dependencies(dependencies: dict, schedule: SupportSchedule)
     # Iterate by idx because we want to update it inplace
     for i in range(len(dependencies)):
         dep_str = dependencies[i]
-        pkg, extras, spec = parse_pep_dependency(dep_str)
+        pkg, extras, spec, env = parse_pep_dependency(dep_str)
 
         if isinstance(spec, Url) or pkg not in schedule["packages"]:
             continue
@@ -36,9 +36,9 @@ def update_pyproject_dependencies(dependencies: dict, schedule: SupportSchedule)
             continue
 
         if not extras:
-            new_dep_str = f"{pkg}{repr_spec_set(spec)}"
+            new_dep_str = f"{pkg}{repr_spec_set(spec)}{env or ''}"
         else:
-            new_dep_str = f"{pkg}{extras}{repr_spec_set(spec)}"
+            new_dep_str = f"{pkg}{extras}{repr_spec_set(spec)}{env or ''}"
 
         dependencies[i] = new_dep_str
 
