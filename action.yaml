@@ -1,26 +1,98 @@
-name: "Generate SPEC-0000 Data"
-description: "Based on the current SPEC 0 schedule, generate a tarball with the latest versions of all packages."
+name: "Update SPEC 0 dependencies"
+description: "Update the lower bounds of Python dependencies covered by the Scientific Python SPEC 0 support schedule"
+author: Scientific Python Developers
+inputs:
+  target_branch:
+    description: "Target branch for the pull request"
+    required: true
+    default: "main"
+  project_file_name: 
+    description: "Path to the project file listing dependencies, relative to repository root. Defaults to 'pyproject.toml'. Currently only pyproject.toml is supported."
+    required: true
+    default: "pyproject.toml"
+  create_pr: 
+    description: "Whether the action should open a PR or not. Set to false for dry-run/testing."
+    required: true
+    default: true
+  commit_msg: 
+    description: "Commit message for the commit to update the versions. by default 'Drop support for unsupported packages conform SPEC 0'. has no effect if `create_pr` is set to false"
+    required: false
+    default: "chore: Drop support for unsupported packages conform SPEC 0"
+  pr_title: 
+    description: "The title of the PR that will be opened. by default 'Drop support for unsupported packages conform SPEC 0'. has no effect if `create_pr` is set to false"
+    required: false
+    default: "chore: Drop support for unsupported packages conform SPEC 0"
+  schedule_path:
+    description: "Path to the schedule.json file relative to the project root. If missing, it will be downloaded from the latest release of savente93/SPEC0-schedule"
+    default: "schedule.json"
+  token:
+    description: "GitHub token with repo permissions to create pull requests"
+    required: true
 
 runs:
   using: "composite"
   steps:
-    - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
-        python-version: "3.13"
-    - name: Install dependencies
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Set up Git
       shell: bash
       run: |
-        pip install -r requirements.txt
-    - name: Run spec_zero_versions.py
+        git config user.name "Scientific Python [bot]"
+        git config user.email "scientific-python@users.noreply.github.com"
+
+    - uses: prefix-dev/setup-pixi@v0.9.0
+      name: Setup Pixi
+      with:
+        pixi-version: v0.49.0
+        manifest-path: ${{ github.action_path }}/pyproject.toml
+
+    - name: Regenerate schedule file if necessary
+      shell: bash
+      env:
+        SCHEDULE_FILE: ${{ inputs.schedule_path }}
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        set -e
+        if [ ! -f "${{ github.workspace }}/$SCHEDULE_FILE" ]; then
+          echo "Regenerating schedule.json..."
+          pixi run generate-schedule --locked
+        if diff -q schedule.json "${{ github.workspace }}/$SCHEDULE_FILE" >/dev/null; then
+            echo "Source and destination have identical contents – nothing to move."
+        else
+            mv schedule.json "${{ github.workspace }}/$SCHEDULE_FILE"
+          fi
+        else
+          echo "Schedule file already exists at $SCHEDULE_FILE"
+        fi
+
+
+    - name: Run update script
       shell: bash
       run: |
-        python spec_zero_versions.py
-    - name: Upload files as an artifact
-      uses: actions/upload-artifact@v5
+        set -e
+        echo "Updating ${{inputs.project_file_name}} using schedule ${{inputs.schedule_path}}"
+        pixi run --manifest-path ${{ github.action_path }}/pyproject.toml update-dependencies  "${{ github.workspace }}/${{ inputs.project_file_name }}" "${{ github.workspace }}/${{ inputs.schedule_path }}"
+
+    - name: Show changes (dry-run)
+      if: ${{ inputs.create_pr != 'true' }}
+      shell: bash
+      run: |
+        echo "Dry run: showing changes that would be committed"
+        git --no-pager diff ${{ inputs.project_file_name }}
+
+    - name: Create Pull Request
+      if: ${{ inputs.create_pr == 'true' }}
+      uses: peter-evans/create-pull-request@v7
       with:
-        name: spec-zero-versions
-        path: |
-          schedule.json
-          schedule.md
-          chart.md
+        token: ${{ inputs.token }}
+        commit-message: ${{ inputs.commit_msg }}
+        path: ${{ inputs.project_file_name }}
+        title: ${{ inputs.pr_title }}
+        body: "This PR was created automatically"
+        base: ${{ inputs.target_branch }}
+        branch: update-spec0-dependencies-${{ github.run_id }}
+
+branding:
+  icon: 'check-square'
+  color: 'blue'

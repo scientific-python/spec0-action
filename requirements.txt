@@ -1,3 +1,0 @@
-packaging
-pandas
-requests
