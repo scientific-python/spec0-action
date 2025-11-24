@@ -7,7 +7,7 @@ jobs:
     name: Run action on test file in repo
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Generate version data using local action
         uses: ./
         with: 
