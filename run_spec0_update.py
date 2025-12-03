@@ -35,9 +35,7 @@ if __name__ == "__main__":
         )
 
     project_data = read_toml(toml_path)
-    print(project_data)
     schedule_data = read_schedule(schedule_path)
-    print(schedule_data)
     update_pyproject_toml(project_data, schedule_data)
 
     write_toml(toml_path, project_data)

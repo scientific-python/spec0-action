@@ -112,7 +112,6 @@ def update_pyproject_toml(
         pyproject_data["project"]["requires-python"] = repr_spec_set(
             parse_version_spec(new_version["packages"]["python"])
         )
-
     update_pyproject_dependencies(
         pyproject_data["project"]["dependencies"], new_version
     )
