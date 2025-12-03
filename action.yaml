@@ -1,6 +1,8 @@
+# action.yml
 name: "Update SPEC 0 dependencies"
 description: "Update the lower bounds of Python dependencies covered by the Scientific Python SPEC 0 support schedule"
 author: Scientific Python Developers
+
 inputs:
   target_branch:
     description: "Target branch for the pull request"
@@ -54,29 +56,31 @@ runs:
       shell: bash
       run: |
         set -e
-        echo "Updating ${{inputs.project_file_name}} using schedule ${{inputs.schedule_path}}"
-        pixi run --manifest-path ${{ github.action_path }}/pyproject.toml update-dependencies  "${{ github.workspace }}/${{ inputs.project_file_name }}" "${{ github.workspace }}/${{ inputs.schedule_path }}"
+        echo "Updating ${{ inputs.project_file_name }} using schedule ${{ inputs.schedule_path }}"
+        pixi run --manifest-path ${{ github.action_path }}/pyproject.toml update-dependencies "${{ github.workspace }}/${{ inputs.project_file_name }}" "${{ github.workspace }}/${{ inputs.schedule_path }}"
     - name: Changes
+      id: changes
       shell: bash
       run: |
         echo "Showing changes that would be committed"
         git --no-pager diff ${{ inputs.project_file_name }}
         if git diff --quiet ${{ inputs.project_file_name }}; then
-          echo "changes_detected=false" >> $GITHUB_OUTPUT
+          echo "changes_detected=false" >> "$GITHUB_OUTPUT"
         else
-          echo "changes_detected=true" >> $GITHUB_OUTPUT
+          echo "changes_detected=true"  >> "$GITHUB_OUTPUT"
         fi
     - name: Create Pull Request
-      if: ${{ inputs.create_pr == 'true' }} && steps.Changes.outputs.changes_detected == 'true'
+      if: ${{ fromJSON(inputs.create_pr) && fromJSON(steps.changes.outputs.changes_detected) }}
       uses: peter-evans/create-pull-request@v7
       with:
         token: ${{ inputs.token }}
         commit-message: ${{ inputs.commit_msg }}
-        path: ${{ inputs.project_file_name }}
         title: ${{ inputs.pr_title }}
         body: "This PR was created automatically"
         base: ${{ inputs.target_branch }}
         branch: update-spec0-dependencies-${{ github.run_id }}
+        add-paths: |
+          ${{ inputs.project_file_name }}
 
 branding:
   icon: "check-square"
