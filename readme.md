@@ -41,7 +41,7 @@ It should update any of the packages listed in the `dependency`, or `tool.pixi.*
 For examples of before and after you can see [./tests/test_data/pyproject.toml](./tests/test_data/pyproject.toml) and [./tests/test_data/pyproject_updated.toml](./tests/test_data/pyproject_updated.toml) respectively.
 Other tools are not yet supported, but we are open to feature requests.
 
-The newest lower bounds will be downloaded from [https://github.com/savente93/SPEC0-schedule](https://github.com/savente93/SPEC0-schedule) but you should not have to worry about this.
+The newest lower bounds will be downloaded from [https://github.com/scientific-python/spec0-action](https://github.com/scientific-python/spec0-action) but you should not have to worry about this.
 
 ### Parameters
 
