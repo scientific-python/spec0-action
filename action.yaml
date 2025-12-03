@@ -56,11 +56,10 @@ runs:
         set -e
         echo "Updating ${{inputs.project_file_name}} using schedule ${{inputs.schedule_path}}"
         pixi run --manifest-path ${{ github.action_path }}/pyproject.toml update-dependencies  "${{ github.workspace }}/${{ inputs.project_file_name }}" "${{ github.workspace }}/${{ inputs.schedule_path }}"
-    - name: Show changes (dry-run)
-      if: ${{ inputs.create_pr != 'true' }}
+    - name: Show changes
       shell: bash
       run: |
-        echo "Dry run: showing changes that would be committed"
+        echo "Showing changes that would be committed"
         git --no-pager diff ${{ inputs.project_file_name }}
     - name: Create Pull Request
       if: ${{ inputs.create_pr == 'true' }}
