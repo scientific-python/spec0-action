@@ -56,11 +56,15 @@ runs:
         set -e
         echo "Updating ${{inputs.project_file_name}} using schedule ${{inputs.schedule_path}}"
         pixi run --manifest-path ${{ github.action_path }}/pyproject.toml update-dependencies  "${{ github.workspace }}/${{ inputs.project_file_name }}" "${{ github.workspace }}/${{ inputs.schedule_path }}"
-    - name: Show changes
+    - name: Show changes and skip if none
       shell: bash
       run: |
         echo "Showing changes that would be committed"
         git --no-pager diff ${{ inputs.project_file_name }}
+        if git diff --quiet ${{ inputs.project_file_name }}; then
+          echo "No changes to commit"
+          exit 0
+        fi
     - name: Create Pull Request
       if: ${{ inputs.create_pr == 'true' }}
       uses: peter-evans/create-pull-request@v7
