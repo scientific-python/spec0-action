@@ -1,4 +1,5 @@
 import requests
+import json
 import collections
 from datetime import datetime, timedelta
 
@@ -6,7 +7,7 @@ import pandas as pd
 from packaging.version import Version, InvalidVersion
 
 
-py_releases = {
+PY_RELEASES = {
     "3.8": "Oct 14, 2019",
     "3.9": "Oct 5, 2020",
     "3.10": "Oct 4, 2021",
@@ -15,79 +16,69 @@ py_releases = {
     "3.13": "Oct 7, 2024",
     "3.14": "Oct 7, 2025",
 }
-core_packages = [
-    # Path(x).stem for x in glob("../core-projects/*.md") if "_index" not in x
-    "numpy",
-    "scipy",
+CORE_PACKAGES = [
+    "ipython",
     "matplotlib",
+    "networkx",
+    "numpy",
     "pandas",
     "scikit-image",
-    "networkx",
     "scikit-learn",
+    "scipy",
     "xarray",
-    "ipython",
     "zarr",
 ]
-plus36 = timedelta(days=int(365 * 3))
-plus24 = timedelta(days=int(365 * 2))
+PLUS_36_MONTHS = timedelta(days=int(365 * 3))
+PLUS_24_MONTHS = timedelta(days=int(365 * 2))
 
 # Release data
-
-# put cutoff 3 quarters ago – we do not use "just" -9 month,
-# to avoid the content of the quarter to change depending on when we generate this
-# file during the current quarter.
-
-current_date = pd.Timestamp.now()
-current_quarter_start = pd.Timestamp(
-    current_date.year, (current_date.quarter - 1) * 3 + 1, 1
+# We put the cutoff at 3 quarters ago - we do not use "just" -9 months
+# to avoid the content of the quarter to change depending on when we
+# generate this file during the current quarter.
+CURRENT_DATE = pd.Timestamp.now()
+CURRENT_QUARTER_START = pd.Timestamp(
+    CURRENT_DATE.year, (CURRENT_DATE.quarter - 1) * 3 + 1, 1
 )
-cutoff = current_quarter_start - pd.DateOffset(months=9)
+CUTOFF = CURRENT_QUARTER_START - pd.DateOffset(months=9)
 
 
-def get_release_dates(package, support_time=plus24):
+def get_release_dates(package, support_time=PLUS_24_MONTHS):
     releases = {}
-
     print(f"Querying pypi.org for {package} versions...", end="", flush=True)
     response = requests.get(
         f"https://pypi.org/simple/{package}",
         headers={"Accept": "application/vnd.pypi.simple.v1+json"},
     ).json()
     print("OK")
-
     file_date = collections.defaultdict(list)
     for f in response["files"]:
+        if f["filename"].endswith(".tar.gz") or f["filename"].endswith(".zip"):
+            continue
         ver = f["filename"].split("-")[1]
         try:
             version = Version(ver)
         except InvalidVersion as e:
             print(f"Error: '{ver}' is an invalid version for '{package}'. Reason: {e}")
             continue
-
         if version.is_prerelease or version.micro != 0:
             continue
-
         release_date = None
         for format in ["%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ"]:
             try:
                 release_date = datetime.strptime(f["upload-time"], format)
             except ValueError as e:
                 print(f"Error parsing invalid date: {e}")
-
         if not release_date:
             continue
-
         file_date[version].append(release_date)
-
     release_date = {v: min(file_date[v]) for v in file_date}
-
     for ver, release_date in sorted(release_date.items()):
         drop_date = release_date + support_time
-        if drop_date >= cutoff:
+        if drop_date >= CUTOFF:
             releases[ver] = {
                 "release_date": release_date,
                 "drop_date": drop_date,
             }
-
     return releases
 
 
@@ -95,27 +86,23 @@ package_releases = {
     "python": {
         version: {
             "release_date": datetime.strptime(release_date, "%b %d, %Y"),
-            "drop_date": datetime.strptime(release_date, "%b %d, %Y") + plus36,
+            "drop_date": datetime.strptime(release_date, "%b %d, %Y") + PLUS_36_MONTHS,
         }
-        for version, release_date in py_releases.items()
+        for version, release_date in PY_RELEASES.items()
     }
 }
-
-package_releases |= {package: get_release_dates(package) for package in core_packages}
-
-# filter all items whose drop_date are in the past
+package_releases |= {package: get_release_dates(package) for package in CORE_PACKAGES}
+# Filter all items whose drop_date are in the past
 package_releases = {
     package: {
         version: dates
         for version, dates in releases.items()
-        if dates["drop_date"] > cutoff
+        if dates["drop_date"] > CUTOFF
     }
     for package, releases in package_releases.items()
 }
 
-
 # Save Gantt chart
-
 print("Saving Mermaid chart to chart.md")
 with open("chart.md", "w") as fh:
     fh.write(
@@ -124,7 +111,6 @@ dateFormat YYYY-MM-DD
 axisFormat %m / %Y
 title Support Window"""
     )
-
     for name, releases in package_releases.items():
         fh.write(f"\n\nsection {name}")
         for version, dates in releases.items():
@@ -134,7 +120,6 @@ title Support Window"""
     fh.write("\n")
 
 # Print drop schedule
-
 data = []
 for k, versions in package_releases.items():
     for v, dates in versions.items():
@@ -146,15 +131,30 @@ for k, versions in package_releases.items():
                 pd.to_datetime(dates["drop_date"]),
             )
         )
-
 df = pd.DataFrame(data, columns=["package", "version", "release", "drop"])
-
 df["quarter"] = df["drop"].dt.to_period("Q")
+df["new_min_version"] = (
+    df[["package", "version", "quarter"]].groupby("package").shift(-1)["version"]
+)
+dq = df.set_index(["quarter", "package"]).sort_index().dropna()
+new_min_versions = (
+    dq.groupby(["quarter", "package"]).agg({"new_min_version": "max"}).reset_index()
+)
 
-dq = df.set_index(["quarter", "package"]).sort_index()
-
-
-print("Saving drop schedule to schedule.md")
+# We want to build a dict with the structure [{start_date: timestamp, packages: {package: lower_bound}}]
+new_min_versions_list = []
+for q, packages in new_min_versions.groupby("quarter"):
+    package_lower_bounds = {
+        p: str(v) for p, v in packages.drop("quarter", axis=1).itertuples(index=False)
+    }
+    # jq is really insistent the Z should be there
+    quarter_start_time_str = str(q.start_time.isoformat()) + "Z"
+    new_min_versions_list.append(
+        {"start_date": quarter_start_time_str, "packages": package_lower_bounds}
+    )
+print("Saving drop schedule to schedule.json")
+with open("schedule.json", "w") as f:
+    f.write(json.dumps(new_min_versions_list, sort_keys=True))
 
 
 def pad_table(table):
@@ -172,7 +172,6 @@ def pad_table(table):
             line += f"| {str.ljust(entry, width)} "
         line += "|"
         padded_table.append(line)
-
     return padded_table
 
 
@@ -192,7 +191,6 @@ def make_table(sub):
             else f"{rel_min.strftime('%b %Y')} and {rel_max.strftime('%b %Y')}"
         )
         table.append(f"|{package:<15}|{version_range:<19}|released {rel_range}|")
-
     return pad_table(table)
 
 
@@ -204,13 +202,13 @@ def make_quarter(quarter, dq):
     return "\n".join(table)
 
 
+print("Saving drop schedule to schedule.md")
 with open("schedule.md", "w") as fh:
-    # we collect package 6 month in the past, and drop the first quarter
+    # We collect packages 6 month in the past, and drop the first quarter
     # as we might have filtered some of the packages out depending on
     # when we ran the script.
     tb = []
     for quarter in list(sorted(set(dq.index.get_level_values(0))))[1:]:
         tb.append(make_quarter(quarter, dq))
-
     fh.write("\n\n".join(tb))
     fh.write("\n")

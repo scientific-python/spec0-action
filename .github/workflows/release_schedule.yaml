@@ -7,7 +7,6 @@ on:
   push:
     branches:
       - "main"
-  pull_request:
   # On demand
   workflow_dispatch:
 
@@ -47,9 +46,9 @@ jobs:
           echo "TAG_NAME=$(date '+%Y-Q%q')" >> "$GITHUB_OUTPUT"
       - name: Commit artifacts and create tag
         env:
-          GH_TOKEN: ${{ secrets.PAT }}
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
         run: |
-          git add schedule.md chart.md schedule.json
+          git add -f schedule.md chart.md schedule.json
           git commit -m "generate schedule for ${{ steps.tag_name.outputs.TAG_NAME }} release" || echo "No changes to commit"
           git tag ${{ steps.tag_name.outputs.TAG_NAME }}
           git push origin main
@@ -58,7 +57,7 @@ jobs:
       - name: Publish github release
         uses: softprops/action-gh-release@v2
         env:
-          GH_TOKEN: ${{ secrets.PAT }}
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
         with:
           generate_release_notes: true
           tag_name: ${{ steps.tag_name.outputs.TAG_NAME }}
