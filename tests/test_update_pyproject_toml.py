@@ -9,3 +9,12 @@ def test_update_pyproject_toml():
     update_pyproject_toml(pyproject_data, test_schedule)
 
     assert pyproject_data == expected
+
+
+def test_update_pyproject_toml_with_pixi():
+    expected = read_toml("tests/test_data/pyproject_pixi_updated.toml")
+    pyproject_data = read_toml("tests/test_data/pyproject_pixi.toml")
+    test_schedule = read_schedule("tests/test_data/test_schedule.json")
+    update_pyproject_toml(pyproject_data, test_schedule)
+
+    assert pyproject_data == expected

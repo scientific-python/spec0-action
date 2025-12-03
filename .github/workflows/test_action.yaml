@@ -1,5 +1,18 @@
 name: Test Action
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - "main"
+      - "*.*"
+    tags:
+      - "v*"
+  pull_request:
+  # Allow manual runs through the web UI
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   generate_data:

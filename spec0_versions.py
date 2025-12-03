@@ -4,7 +4,7 @@ import collections
 from datetime import datetime, timedelta
 
 import pandas as pd
-from packaging.version import Version
+from packaging.version import Version, InvalidVersion
 
 
 PY_RELEASES = {
@@ -14,6 +14,7 @@ PY_RELEASES = {
     "3.11": "Oct 24, 2022",
     "3.12": "Oct 2, 2023",
     "3.13": "Oct 7, 2024",
+    "3.14": "Oct 7, 2025",
 }
 CORE_PACKAGES = [
     "ipython",
@@ -56,11 +57,17 @@ def get_release_dates(package, support_time=PLUS_24_MONTHS):
         ver = f["filename"].split("-")[1]
         try:
             version = Version(ver)
-        except Exception:
+        except InvalidVersion as e:
+            print(f"Error: '{ver}' is an invalid version for '{package}'. Reason: {e}")
             continue
         if version.is_prerelease or version.micro != 0:
             continue
-        release_date = pd.Timestamp(f["upload-time"]).tz_localize(None)
+        release_date = None
+        for format in ["%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ"]:
+            try:
+                release_date = datetime.strptime(f["upload-time"], format)
+            except ValueError as e:
+                print(f"Error parsing invalid date: {e}")
         if not release_date:
             continue
         file_date[version].append(release_date)

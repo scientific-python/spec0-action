@@ -1,10 +1,13 @@
 name: Run the update test suite
 on:
   push:
-    branches: main
+    branches:
+      - "main"
+      - "*.*"
+    tags:
+      - "v*"
   pull_request:
-    branches: main
-  # On demand
+  # Allow manual runs through the web UI
   workflow_dispatch:
 
 jobs:
@@ -13,7 +16,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-
       - uses: prefix-dev/setup-pixi@v0.9.3
         with:
           pixi-version: "v0.49.0"
