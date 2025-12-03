@@ -12,7 +12,9 @@ from re import compile
 Url: TypeAlias = ParseResult
 
 # Slightly modified version of https://packaging.python.org/en/latest/specifications/dependency-specifiers/#names
-PEP_PACKAGE_IDENT_RE = compile(r"(?im)^([A-Z0-9][A-Z0-9._-]*)(\[[A-Z0-9._,-]+\])?(.*)$")
+PEP_PACKAGE_IDENT_RE = compile(
+    r"(?im)^([A-Z0-9][A-Z0-9._-]*)(\[[A-Z0-9._,-]+\])?([^;]*)(;.*)?$"
+)
 
 
 class SupportSchedule(TypedDict):
@@ -64,12 +66,12 @@ def read_schedule(path: Path | str) -> Sequence[SupportSchedule]:
 
 def parse_pep_dependency(
     dep_str: str,
-) -> Tuple[str, str | None, SpecifierSet | Url | None]:
+) -> Tuple[str, str | None, SpecifierSet | Url | None, str | None]:
     match = PEP_PACKAGE_IDENT_RE.match(dep_str)
     if match is None:
         raise ValueError("Could not find any valid python package identifier")
 
-    pkg, extras, spec_str = match.groups()
+    pkg, extras, spec_str, env = match.groups()
 
     extras = extras or None
 
@@ -80,7 +82,7 @@ def parse_pep_dependency(
     else:
         spec = SpecifierSet(spec_str)
 
-    return (pkg, extras, spec)
+    return (pkg, extras, spec, env)
 
 
 def is_url_spec(str_spec: str | None) -> bool:
