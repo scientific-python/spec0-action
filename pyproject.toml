@@ -30,4 +30,3 @@ pytest = "*"
 
 [tool.pixi.environments]
 test = ["test"]
-

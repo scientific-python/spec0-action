@@ -11,12 +11,13 @@ from spec0_action.parsing import (
     parse_version_spec,
     read_schedule,
     read_toml,
-    write_toml
+    write_toml,
 )
 from packaging.version import Version
 
 
 __all__ = ["read_schedule", "read_toml", "write_toml", "update_pyproject_toml"]
+
 
 def update_pyproject_dependencies(dependencies: dict, schedule: SupportSchedule):
     # Iterate by idx because we want to update it inplace
@@ -75,15 +76,17 @@ def update_dependency_table(dep_table: dict, new_versions: dict):
 
 
 def update_pixi_dependencies(pixi_tables: dict, schedule: SupportSchedule):
-    if "pypi-dependencies" in pixi_tables: 
+    if "pypi-dependencies" in pixi_tables:
         update_dependency_table(pixi_tables["pypi-dependencies"], schedule["packages"])
-    if "dependencies" in pixi_tables: 
+    if "dependencies" in pixi_tables:
         update_dependency_table(pixi_tables["dependencies"], schedule["packages"])
 
     if "feature" in pixi_tables:
         for _, feature_data in pixi_tables["feature"].items():
             if "dependencies" in feature_data:
-                update_dependency_table(feature_data["dependencies"], schedule["packages"])
+                update_dependency_table(
+                    feature_data["dependencies"], schedule["packages"]
+                )
 
 
 def update_pyproject_toml(
@@ -114,6 +117,6 @@ def update_pyproject_toml(
         pyproject_data["project"]["dependencies"], new_version
     )
 
-    if "tool" in pyproject_data and "pixi" in pyproject_data['tool']:
+    if "tool" in pyproject_data and "pixi" in pyproject_data["tool"]:
         pixi_data = pyproject_data["tool"]["pixi"]
         update_pixi_dependencies(pixi_data, new_version)

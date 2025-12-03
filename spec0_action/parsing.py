@@ -62,7 +62,9 @@ def read_schedule(path: Path | str) -> Sequence[SupportSchedule]:
         return json.load(file)
 
 
-def parse_pep_dependency(dep_str: str) -> Tuple[str, str | None, SpecifierSet | Url | None]:
+def parse_pep_dependency(
+    dep_str: str,
+) -> Tuple[str, str | None, SpecifierSet | Url | None]:
     match = PEP_PACKAGE_IDENT_RE.match(dep_str)
     if match is None:
         raise ValueError("Could not find any valid python package identifier")
@@ -81,7 +83,7 @@ def parse_pep_dependency(dep_str: str) -> Tuple[str, str | None, SpecifierSet | 
     return (pkg, extras, spec)
 
 
-def is_url_spec(str_spec: str|None) -> bool:
+def is_url_spec(str_spec: str | None) -> bool:
     if str_spec is None:
         return False
 

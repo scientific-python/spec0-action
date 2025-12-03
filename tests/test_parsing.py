@@ -37,6 +37,7 @@ def test_pep_dependency_parsing_with_spec_and_optional_dep():
     assert features == "[foo,bar]", features
     assert spec == SpecifierSet(">=3.7.0,<4"), spec
 
+
 def test_pep_dependency_parsing_with_spec():
     matplotlib_str = "matplotlib>=3.7.0,<4"
     pkg, features, spec = parse_pep_dependency(matplotlib_str)

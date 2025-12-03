@@ -6,19 +6,19 @@ inputs:
     description: "Target branch for the pull request"
     required: true
     default: "main"
-  project_file_name: 
+  project_file_name:
     description: "Path to the project file listing dependencies, relative to repository root. Defaults to 'pyproject.toml'. Currently only pyproject.toml is supported."
     required: true
     default: "pyproject.toml"
-  create_pr: 
+  create_pr:
     description: "Whether the action should open a PR or not. Set to false for dry-run/testing."
     required: true
     default: true
-  commit_msg: 
+  commit_msg:
     description: "Commit message for the commit to update the versions. by default 'Drop support for unsupported packages conform SPEC 0'. has no effect if `create_pr` is set to false"
     required: false
     default: "chore: Drop support for unsupported packages conform SPEC 0"
-  pr_title: 
+  pr_title:
     description: "The title of the PR that will be opened. by default 'Drop support for unsupported packages conform SPEC 0'. has no effect if `create_pr` is set to false"
     required: false
     default: "chore: Drop support for unsupported packages conform SPEC 0"
@@ -66,7 +66,6 @@ runs:
           echo "Schedule file already exists at $SCHEDULE_FILE"
         fi
 
-
     - name: Run update script
       shell: bash
       run: |
@@ -94,5 +93,5 @@ runs:
         branch: update-spec0-dependencies-${{ github.run_id }}
 
 branding:
-  icon: 'check-square'
-  color: 'blue'
+  icon: "check-square"
+  color: "blue"
