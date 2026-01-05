@@ -5,9 +5,9 @@ description     = "This is just a dummy package for testing the spec 0 update gi
 requires-python = ">=3.10"
 version         = "0.1.0"
 dependencies    = [
-    "ipython>=8.7.0,<4",
-    "numpy[foo,bar]>=1.10.0,<2",
-    "scikit-learn>1.2,<1.4;sys_platform=='win32'",
+    "ipython>=8.7.0",
+    "numpy[foo,bar]>=1.10.0",
+    "scikit-learn>1.2,<1.5;sys_platform=='win32'",
     "scikit-learn>1.2;sys_platform!='win32'"
 ]
 
