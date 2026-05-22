@@ -16,7 +16,7 @@ jobs:
         with:
           pixi-version: "v0.69.0"
       - name: Generate schedule files
-        run: pixi run generate-schedules
+        run: pixi run generate-schedule
       - name: Publish schedule as release asset
         env:
           GH_TOKEN: ${{ github.token }}
