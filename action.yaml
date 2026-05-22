@@ -2,7 +2,6 @@
 name: "Update SPEC 0 dependencies"
 description: "Update the lower bounds of Python dependencies covered by the Scientific Python SPEC 0 support schedule"
 author: Scientific Python Developers
-
 inputs:
   target_branch:
     description: "Target branch for the pull request"
@@ -15,7 +14,7 @@ inputs:
   create_pr:
     description: "Whether the action should open a PR or not. Set to false for dry-run/testing."
     required: true
-    default: true
+    default: "true"
   commit_msg:
     description: "Commit message for the commit to update the versions. by default 'Drop support for unsupported packages conform SPEC 0'. has no effect if `create_pr` is set to false"
     required: false
@@ -25,39 +24,53 @@ inputs:
     required: false
     default: "chore: Drop support for unsupported packages conform SPEC 0"
   schedule_path:
-    description: "Path to the schedule.json file relative to the project root. If missing, it will be downloaded from the latest release of savente93/SPEC0-schedule"
-    default: "schedule.json"
+    description: "Path to the schedule.json file relative to the project root. If not provided, the schedule bundled with the action is used."
+    required: false
+    default: ""
   token:
-    description: "GitHub token with repo permissions to create pull requests"
-    required: true
-
+    description: "GitHub token with pull-requests write permission to create pull requests. Defaults to the built-in GITHUB_TOKEN."
+    required: false
+  update_all:
+    description: "If set, also update all non-SPEC0 dependencies to versions released within the last N years (e.g., 2)."
+    required: false
+    default: ""
 runs:
   using: "composite"
   steps:
     - name: Checkout code
-      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
     - name: Set up Git
       shell: bash
       run: |
         git config user.name "Scientific Python [bot]"
         git config user.email "scientific-python@users.noreply.github.com"
-    - uses: prefix-dev/setup-pixi@1b2de7f3351f171c8b4dfeb558c639cb58ed4ec0 # v0.9.5
+    - uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11 # v0.9.6
       name: Setup Pixi
       with:
-        pixi-version: v0.49.0
+        pixi-version: v0.69.0
         manifest-path: ${{ github.action_path }}/pyproject.toml
-    - name: Fetch Schedule from release
+    - name: Fetch schedule from release
+      if: ${{ inputs.schedule_path == '' }}
       uses: robinraju/release-downloader@28fc21f50d76778e7023361aa1f863e717d3d56f # v1.13
       with:
-        repository: "savente93/SPEC0-schedule"
+        repository: "scientific-python/spec0-action"
         latest: true
         fileName: "schedule.json"
     - name: Run update script
       shell: bash
       run: |
         set -e
-        echo "Updating ${{ inputs.project_file_name }} using schedule ${{ inputs.schedule_path }}"
-        pixi run --manifest-path ${{ github.action_path }}/pyproject.toml update-dependencies "${{ github.workspace }}/${{ inputs.project_file_name }}" "${{ github.workspace }}/${{ inputs.schedule_path }}"
+        if [ -n "${{ inputs.schedule_path }}" ]; then
+          SCHEDULE_PATH="${{ github.workspace }}/${{ inputs.schedule_path }}"
+        else
+          SCHEDULE_PATH="${{ github.workspace }}/schedule.json"
+        fi
+        echo "Updating ${{ inputs.project_file_name }} using schedule $SCHEDULE_PATH"
+        UPDATE_ALL_FLAG=""
+        if [ -n "${{ inputs.update_all }}" ]; then
+          UPDATE_ALL_FLAG="--update-all ${{ inputs.update_all }}"
+        fi
+        pixi run --manifest-path ${{ github.action_path }}/pyproject.toml update-dependencies "${{ github.workspace }}/${{ inputs.project_file_name }}" "$SCHEDULE_PATH" $UPDATE_ALL_FLAG
     - name: Changes
       id: changes
       shell: bash
@@ -73,7 +86,7 @@ runs:
       if: ${{ fromJSON(inputs.create_pr) && fromJSON(steps.changes.outputs.changes_detected) }}
       uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
       with:
-        token: ${{ inputs.token }}
+        token: ${{ inputs.token || github.token }}
         commit-message: ${{ inputs.commit_msg }}
         title: ${{ inputs.pr_title }}
         body: "This PR was created automatically"

@@ -7,7 +7,6 @@ if __name__ == "__main__":
     parser = ArgumentParser(
         description="A script to update your project dependencies to be in line with the scientific python SPEC 0 support schedule",
     )
-
     parser.add_argument(
         "toml_path",
         default="pyproject.toml",
@@ -18,24 +17,25 @@ if __name__ == "__main__":
         default="schedule.json",
         help="Path to the schedule json payload. defaults to 'schedule.json'",
     )
-
+    parser.add_argument(
+        "--update-all",
+        type=float,
+        default=None,
+        metavar="YEARS",
+        help="Also update all non-SPEC0 dependencies to versions released within the last YEARS years (e.g., 2).",
+    )
     args = parser.parse_args()
-
     toml_path = Path(args.toml_path)
     schedule_path = Path(args.schedule_path)
-
     if not toml_path.exists():
         raise ValueError(
             f"{toml_path} was supplied as path to project file but it did not exist"
         )
-
     if not schedule_path.exists():
         raise ValueError(
             f"{schedule_path} was supplied as path to schedule file but it did not exist"
         )
-
     project_data = read_toml(toml_path)
     schedule_data = read_schedule(schedule_path)
-    update_pyproject_toml(project_data, schedule_data)
-
+    update_pyproject_toml(project_data, schedule_data, update_all=args.update_all)
     write_toml(toml_path, project_data)
