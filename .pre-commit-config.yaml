@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: cef0300fd0fc4d2a87a85fa2093c6b283ea36f4b # frozen: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: check-added-large-files
       - id: check-ast
@@ -15,19 +15,19 @@ repos:
       - id: mixed-line-ending
       - id: trailing-whitespace
   - repo: https://github.com/rbubley/mirrors-prettier
-    rev: 787fb9f542b140ba0b2aced38e6a3e68021647a3 # frozen: v3.5.3
+    rev: v3.8.3
     hooks:
       - id: prettier
         files: \.(css|html|md|yml|yaml|gql)
         args: [--prose-wrap=preserve]
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: 971923581912ef60a6b70dbf0c3e9a39563c9d47 # frozen: v0.11.4
+    rev: v0.15.14
     hooks:
-      - id: ruff
+      - id: ruff-check
         args: ["--fix", "--show-fixes", "--exit-non-zero-on-fix"]
       - id: ruff-format
   - repo: https://github.com/codespell-project/codespell
-    rev: "63c8f8312b7559622c0d82815639671ae42132ac" # frozen: v2.4.1
+    rev: "v2.4.2"
     hooks:
       - id: codespell
 

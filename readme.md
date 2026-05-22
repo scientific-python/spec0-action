@@ -1,27 +1,21 @@
 # SPEC 0 Versions Action
 
-This repository contains a Github Action to update Python dependencies in your `pyproject.toml` such that they conform to the SPEC 0 support schedule.
-[You can find this schedule here.](https://scientific-python.org/specs/spec-0000/)
+A GitHub Action that updates the lower bounds of Python dependencies in `pyproject.toml` to conform to the [SPEC 0 support schedule](https://scientific-python.org/specs/spec-0000/).
 
 ## Using the action
 
 ### Example workflow
 
-To use the action you can copy the yaml below, and paste it into `.github/workflows/update-spec0.yaml`.
-Whenever the action is triggered it will open a PR in your repository that will update the dependencies of SPEC 0 to the new lower bound.
-For this you will have to provide it with a PAT that has write permissions in the `contents` and `pull request` scopes.
-[Please refer to the GitHub documentation for instructions on how to do this here.](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
+Copy the yaml below into `.github/workflows/update-spec0.yaml`.
+On each run the action opens a PR updating dependency lower bounds to match the current SPEC 0 schedule.
 
 ```yaml
 name: Update SPEC 0 dependencies
 
 on:
   schedule:
-    # At 00:00 on day-of-month 3 in every 3rd month. (i.e. every quarter)
-    # Releases should happen on the second day of the quarter in savente93/SPEC0-schedule to
-    # avoid fence post errors, so allow one day as a buffer to avoid timing issues here as well.
-    - cron: "0 0 3 */3 *"
-  # On demand:
+    # Day 3 of each quarter. Allows one day buffer after the quarterly schedule release on day 1
+    - cron: "0 0 3 1,4,7,10 *"
   workflow_dispatch:
 
 permissions:
@@ -32,32 +26,54 @@ jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - uses: scientific-python/spec0-action@v1.0.0
-        with:
-          token: ${{ secrets.GH_PAT }} # <- GH_PAT you will have to configure in the repo as a secret
+      - uses: scientific-python/spec0-action@v1
 ```
 
-It should update any of the packages listed in the `dependency`, or `tool.pixi.*` tables.
-For examples of before and after you can see [./tests/test_data/pyproject.toml](./tests/test_data/pyproject.toml) and [./tests/test_data/pyproject_updated.toml](./tests/test_data/pyproject_updated.toml) respectively.
-Other tools are not yet supported, but we are open to feature requests.
-
-The newest lower bounds will be downloaded from [https://github.com/scientific-python/spec0-action](https://github.com/scientific-python/spec0-action) but you should not have to worry about this.
+No PAT required.
+The built-in `GITHUB_TOKEN` is used by default as long as the workflow has `pull-requests: write` permission.
 
 ### Parameters
 
-| Input             | Required | Default                                                       | Description                                                                     |
-| ----------------- | -------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| token             | yes      | —                                                             | Personal access token with `contents` & `pull-request` scopes                   |
-| project_file_name | no       | `"pyproject.toml"`                                            | File to update dependencies in                                                  |
-| schedule_path     | no       | `"schedule.json"`                                             | path to schedule json data. only relevant if you have it committed in your repo |
-| target_branch     | no       | `"main"`                                                      | Branch to open PR against                                                       |
-| create_pr         | no       | `true`                                                        | Open a PR with new versions                                                     |
-| pr_title          | no       | `chore: Drop support for unsupported packages conform SPEC 0` | The title of the PR that will be opened                                         |
-| commit_msg        | no       | `chore: Drop support for unsupported packages conform SPEC 0` | Commit message of the commit to update the versions.                            |
+| Input               | Required | Default                                                       | Description                                                                                                      |
+| ------------------- | -------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `token`             | no       | `GITHUB_TOKEN`                                                | Token with `pull-requests: write` permission to open PRs                                                         |
+| `project_file_name` | no       | `pyproject.toml`                                              | Path to the file to update, relative to repository root                                                          |
+| `schedule_path`     | no       | —                                                             | Path to a custom `schedule.json`, relative to repository root. Uses the latest release if unset                  |
+| `target_branch`     | no       | `main`                                                        | Branch to open the PR against                                                                                    |
+| `create_pr`         | no       | `true`                                                        | Set to `false` for a dry run                                                                                     |
+| `pr_title`          | no       | `chore: Drop support for unsupported packages conform SPEC 0` | Title of the opened PR                                                                                           |
+| `commit_msg`        | no       | `chore: Drop support for unsupported packages conform SPEC 0` | Commit message for the version update commit                                                                     |
+| `update_all`        | no       | —                                                             | If set to a number N, also update non-SPEC0 dependencies to versions released within the last N years (e.g. `2`) |
+
+For examples of before/after see [tests/test_data/pyproject.toml](./tests/test_data/pyproject.toml) and [tests/test_data/pyproject_updated.toml](./tests/test_data/pyproject_updated.toml).
 
 ## Limitations
 
-1. Since this action simply parses the toml to do the upgrade and leaves any other bounds intact, it is possible that the environment of the PR becomes unsolvable.
-   For example if you have a numpy dependency like so: `numpy = ">=1.25.0,<2"` this will get updated in the PR to `numpy = ">=2.0.0,<2"` which is infeasible.
-   Keeping the resulting environment solvable is outside the scope of this action, so you might have to adjust them manually.
-2. Currently only `pyproject.toml` is supported by this action, though other manifest files could be considered upon request.
+1. The action only tightens lower bounds and leaves upper bounds untouched. An update can produce an unsolvable environment — for example `numpy = ">=1.25.0,<2"` becomes `numpy = ">=2.0.0,<2"`. Keeping the environment solvable is out of scope; adjust upper bounds manually if needed.
+2. Only `pyproject.toml` is currently supported.
+
+## Maintainer notes
+
+### Releasing a new action version
+
+Action versions are **git tags only**, do not create a GitHub Release for them. GitHub Releases in this repository are reserved for the quarterly schedule data.
+
+```bash
+git tag v1.x
+git push origin v1.x
+```
+
+### Schedule releases
+
+The SPEC 0 schedule (`schedule.json` and `schedule.md`) is published as a GitHub Release quarterly by the [Update SPEC 0 schedule](./.github/workflows/update_schedule.yml) workflow. Releases are tagged `schedule-YYYY-QN` (e.g. `schedule-2026-Q2`).
+
+The action always fetches `schedule.json` from the **latest** GitHub Release in this repository, which will always be a schedule release as long as action versions are never published as releases.
+
+#### Bootstrap
+
+Before the first quarterly schedule release exists, the action will fail. To create the initial release, trigger the workflow manually:
+
+1. Go to **Actions → Update SPEC 0 schedule**
+2. Click **Run workflow**
+
+Subsequent releases are created automatically on the 1st of January, April, July, and October.
