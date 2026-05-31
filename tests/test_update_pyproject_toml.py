@@ -2,6 +2,7 @@ import datetime
 from unittest.mock import patch
 
 import pytest
+from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 
 from spec0_action.parsing import read_schedule, read_toml
@@ -89,3 +90,121 @@ def test_update_all_noop_when_not_set(patch_datetime_now):
     with patch.object(spec0_action, "_get_oldest_version_in_window") as mock_pypi:
         update_pyproject_toml(pyproject, schedule)
     mock_pypi.assert_not_called()
+
+
+def test_requires_python_preserves_existing_restrictions(patch_datetime_now):
+    pyproject = _minimal_pyproject()
+    pyproject["project"]["requires-python"] = ">=3.9,<3.14,!=3.13.*"
+    schedule = read_schedule("tests/test_data/test_schedule.json")
+
+    update_pyproject_toml(pyproject, schedule)
+
+    assert SpecifierSet(pyproject["project"]["requires-python"]) == SpecifierSet(
+        ">=3.12,<3.14,!=3.13.*"
+    )
+
+
+def test_canonical_package_names_match_schedule(patch_datetime_now):
+    pyproject = _minimal_pyproject("Numpy>=1.20", "scikit_learn>=1.0")
+    schedule = read_schedule("tests/test_data/test_schedule.json")
+
+    update_pyproject_toml(pyproject, schedule)
+
+    assert pyproject["project"]["dependencies"] == [
+        "Numpy>=2.0.0",
+        "scikit_learn>=1.4.0",
+    ]
+
+
+def test_optional_dependencies_and_dependency_groups_are_updated(patch_datetime_now):
+    pyproject = _minimal_pyproject()
+    pyproject["project"]["optional-dependencies"] = {
+        "test": ["Numpy>=1.20"],
+    }
+    pyproject["dependency-groups"] = {
+        "dev": ["numpy>=1.20", {"include-group": "test"}],
+    }
+    schedule = read_schedule("tests/test_data/test_schedule.json")
+
+    update_pyproject_toml(pyproject, schedule)
+
+    assert pyproject["project"]["optional-dependencies"]["test"] == ["Numpy>=2.0.0"]
+    assert pyproject["dependency-groups"]["dev"] == [
+        "numpy>=2.0.0",
+        {"include-group": "test"},
+    ]
+
+
+def test_missing_project_dependencies_is_noop(patch_datetime_now):
+    pyproject = {"project": {"requires-python": ">=3.9"}}
+    schedule = read_schedule("tests/test_data/test_schedule.json")
+
+    update_pyproject_toml(pyproject, schedule)
+
+    assert SpecifierSet(pyproject["project"]["requires-python"]) == SpecifierSet(
+        ">=3.12"
+    )
+
+
+def test_pixi_feature_pypi_dependencies_and_non_version_tables(patch_datetime_now):
+    pyproject = _minimal_pyproject()
+    pyproject["tool"] = {
+        "pixi": {
+            "dependencies": {
+                "scikit-learn": {"git": "https://example.invalid/scikit-learn.git"}
+            },
+            "feature": {
+                "test": {
+                    "pypi-dependencies": {"Numpy": ">=1.20"},
+                    "dependencies": {
+                        "xarray": {"url": "https://example.invalid/pkg.whl"}
+                    },
+                }
+            },
+        }
+    }
+    schedule = read_schedule("tests/test_data/test_schedule.json")
+
+    update_pyproject_toml(pyproject, schedule)
+
+    assert (
+        pyproject["tool"]["pixi"]["feature"]["test"]["pypi-dependencies"]["Numpy"]
+        == ">=2.0.0"
+    )
+    assert pyproject["tool"]["pixi"]["dependencies"]["scikit-learn"] == {
+        "git": "https://example.invalid/scikit-learn.git"
+    }
+    assert pyproject["tool"]["pixi"]["feature"]["test"]["dependencies"]["xarray"] == {
+        "url": "https://example.invalid/pkg.whl"
+    }
+
+
+def test_update_all_uses_version_release_date_not_new_file_upload(
+    patch_datetime_now,
+):
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "files": [
+                    {
+                        "filename": "example-1.0.0.tar.gz",
+                        "upload-time": "2020-01-01T00:00:00Z",
+                    },
+                    {
+                        "filename": "example-1.0.0-py3-none-any.whl",
+                        "upload-time": "2025-01-01T00:00:00Z",
+                    },
+                    {
+                        "filename": "example-2.0.0-py3-none-any.whl",
+                        "upload-time": "2024-01-01T00:00:00Z",
+                    },
+                ]
+            }
+
+    with patch.object(spec0_action.requests, "get", return_value=Response()):
+        assert spec0_action._get_oldest_version_in_window("example", 2) == Version(
+            "2.0.0"
+        )
