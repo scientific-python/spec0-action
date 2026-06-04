@@ -108,6 +108,24 @@ def update_pyproject_dependencies(dependencies: list, schedule: Dict[str, str]):
         dependencies[i] = new_dep_str
 
 
+def iter_pep_dependency_lists(pyproject_data: dict, project_data: dict):
+    dependencies = project_data.get("dependencies")
+    if isinstance(dependencies, list):
+        yield dependencies
+
+    optional_dependencies = project_data.get("optional-dependencies", {})
+    if isinstance(optional_dependencies, dict):
+        for dependencies in optional_dependencies.values():
+            if isinstance(dependencies, list):
+                yield dependencies
+
+    dependency_groups = pyproject_data.get("dependency-groups", {})
+    if isinstance(dependency_groups, dict):
+        for dependencies in dependency_groups.values():
+            if isinstance(dependencies, list):
+                yield dependencies
+
+
 def update_dependency_table(dep_table: dict, new_versions: dict):
     for pkg, pkg_data in dep_table.items():
         schedule_key = canonicalize_name(pkg)
@@ -119,7 +137,10 @@ def update_dependency_table(dep_table: dict, new_versions: dict):
             if not is_url_spec(pkg_data):
                 spec = parse_version_spec(pkg_data)
                 new_lower_bound = Version(new_versions[schedule_key])
-                spec = tighten_lower_bound(spec, new_lower_bound)
+                try:
+                    spec = tighten_lower_bound(spec, new_lower_bound)
+                except ValueError:
+                    continue
                 dep_table[pkg] = repr_spec_set(spec)
             else:
                 # We don't do anything with url spec dependencies
@@ -131,7 +152,10 @@ def update_dependency_table(dep_table: dict, new_versions: dict):
                 continue
             spec = parse_version_spec(pkg_data["version"])
             new_lower_bound = Version(new_versions[schedule_key])
-            spec = tighten_lower_bound(spec, new_lower_bound)
+            try:
+                spec = tighten_lower_bound(spec, new_lower_bound)
+            except ValueError:
+                continue
             pkg_data["version"] = repr_spec_set(spec)
 
 
@@ -188,42 +212,25 @@ def update_pyproject_toml(
             python_spec = parse_version_spec(new_version["python"])
         project_data["requires-python"] = repr_spec_set(python_spec)
 
-    dependencies = project_data.get("dependencies")
-    if isinstance(dependencies, list):
+    for dependencies in iter_pep_dependency_lists(pyproject_data, project_data):
         update_pyproject_dependencies(dependencies, new_version)
-
-    optional_dependencies = project_data.get("optional-dependencies", {})
-    if isinstance(optional_dependencies, dict):
-        for dependencies in optional_dependencies.values():
-            if isinstance(dependencies, list):
-                update_pyproject_dependencies(dependencies, new_version)
-
-    dependency_groups = pyproject_data.get("dependency-groups", {})
-    if isinstance(dependency_groups, dict):
-        for dependencies in dependency_groups.values():
-            if isinstance(dependencies, list):
-                update_pyproject_dependencies(dependencies, new_version)
 
     if "tool" in pyproject_data and "pixi" in pyproject_data["tool"]:
         pixi_data = pyproject_data["tool"]["pixi"]
         update_pixi_dependencies(pixi_data, new_version)
     if update_all is not None:
-        deps = project_data.get("dependencies", [])
-        for i, dep_str in enumerate(deps):
-            if not isinstance(dep_str, str):
-                continue
-            pkg, extras, spec, env = parse_pep_dependency(dep_str)
-            if (
-                canonicalize_name(pkg) in new_version
-                or isinstance(spec, Url)
-                or spec is None
-            ):
-                continue
-            min_ver = _get_oldest_version_in_window(pkg, update_all)
-            if min_ver is None:
-                continue
-            try:
-                updated = tighten_lower_bound(spec, min_ver)
-                deps[i] = f"{pkg}{extras or ''}{repr_spec_set(updated)}{env or ''}"
-            except ValueError:
-                continue
+        for deps in iter_pep_dependency_lists(pyproject_data, project_data):
+            for i, dep_str in enumerate(deps):
+                if not isinstance(dep_str, str):
+                    continue
+                pkg, extras, spec, env = parse_pep_dependency(dep_str)
+                if canonicalize_name(pkg) in new_version or isinstance(spec, Url):
+                    continue
+                min_ver = _get_oldest_version_in_window(pkg, update_all)
+                if min_ver is None:
+                    continue
+                try:
+                    updated = tighten_lower_bound(spec or SpecifierSet(), min_ver)
+                    deps[i] = f"{pkg}{extras or ''}{repr_spec_set(updated)}{env or ''}"
+                except ValueError:
+                    continue

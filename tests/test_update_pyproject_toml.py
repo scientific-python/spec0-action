@@ -92,6 +92,30 @@ def test_update_all_noop_when_not_set(patch_datetime_now):
     mock_pypi.assert_not_called()
 
 
+def test_update_all_updates_optional_dependency_groups_and_unbounded(
+    patch_datetime_now,
+):
+    pyproject = _minimal_pyproject("requests")
+    pyproject["project"]["optional-dependencies"] = {
+        "test": ["idna>=3.0.0"],
+    }
+    pyproject["dependency-groups"] = {
+        "dev": ["charset-normalizer>=3.0.0", {"include-group": "test"}],
+    }
+    schedule = read_schedule("tests/test_data/test_schedule.json")
+    with patch.object(
+        spec0_action, "_get_oldest_version_in_window", return_value=Version("9.0.0")
+    ):
+        update_pyproject_toml(pyproject, schedule, update_all=2.0)
+
+    assert pyproject["project"]["dependencies"] == ["requests>=9.0.0"]
+    assert pyproject["project"]["optional-dependencies"]["test"] == ["idna>=9.0.0"]
+    assert pyproject["dependency-groups"]["dev"] == [
+        "charset-normalizer>=9.0.0",
+        {"include-group": "test"},
+    ]
+
+
 def test_requires_python_preserves_existing_restrictions(patch_datetime_now):
     pyproject = _minimal_pyproject()
     pyproject["project"]["requires-python"] = ">=3.9,<3.14,!=3.13.*"
@@ -101,6 +125,18 @@ def test_requires_python_preserves_existing_restrictions(patch_datetime_now):
 
     assert SpecifierSet(pyproject["project"]["requires-python"]) == SpecifierSet(
         ">=3.12,<3.14,!=3.13.*"
+    )
+
+
+def test_requires_python_keeps_incompatible_existing_restrictions(patch_datetime_now):
+    pyproject = _minimal_pyproject()
+    pyproject["project"]["requires-python"] = ">=3.9,<3.12"
+    schedule = read_schedule("tests/test_data/test_schedule.json")
+
+    update_pyproject_toml(pyproject, schedule)
+
+    assert SpecifierSet(pyproject["project"]["requires-python"]) == SpecifierSet(
+        ">=3.9,<3.12"
     )
 
 

@@ -5,6 +5,9 @@ from packaging.specifiers import Specifier, SpecifierSet
 def tighten_lower_bound(
     spec_set: SpecifierSet, new_lower_bound: Version
 ) -> SpecifierSet:
+    if new_lower_bound not in spec_set:
+        raise ValueError(f"{new_lower_bound} does not satisfy {spec_set}")
+
     out = []
     contains_lower_bound = False
 
