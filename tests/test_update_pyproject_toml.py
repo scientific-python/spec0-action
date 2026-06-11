@@ -116,6 +116,34 @@ def test_update_all_updates_optional_dependency_groups_and_unbounded(
     ]
 
 
+def test_self_referencing_extras_are_left_alone(patch_datetime_now):
+    pyproject = _minimal_pyproject("requests>=2.0.0")
+    pyproject["project"]["name"] = "My_Package"
+    pyproject["dependency-groups"] = {
+        "tests": ["my-package[plotting,tests-only]"],
+    }
+    schedule = read_schedule("tests/test_data/test_schedule.json")
+    with patch.object(
+        spec0_action, "_get_oldest_version_in_window", return_value=Version("2.2.2")
+    ) as mock_pypi:
+        update_pyproject_toml(pyproject, schedule, update_all=2.0)
+
+    assert pyproject["dependency-groups"]["tests"] == ["my-package[plotting,tests-only]"]
+    for call_args in mock_pypi.call_args_list:
+        assert call_args[0][0] != "my-package"
+
+
+def test_self_reference_skipped_even_when_in_schedule(patch_datetime_now):
+    # A project named like a schedule package must not have its self-reference pinned
+    pyproject = _minimal_pyproject("numpy[test]")
+    pyproject["project"]["name"] = "numpy"
+    schedule = read_schedule("tests/test_data/test_schedule.json")
+
+    update_pyproject_toml(pyproject, schedule)
+
+    assert pyproject["project"]["dependencies"] == ["numpy[test]"]
+
+
 def test_requires_python_preserves_existing_restrictions(patch_datetime_now):
     pyproject = _minimal_pyproject()
     pyproject["project"]["requires-python"] = ">=3.9,<3.14,!=3.13.*"

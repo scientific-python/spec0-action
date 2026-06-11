@@ -85,7 +85,9 @@ def _version_from_filename(filename: str) -> Version | None:
         return None
 
 
-def update_pyproject_dependencies(dependencies: list, schedule: Dict[str, str]):
+def update_pyproject_dependencies(
+    dependencies: list, schedule: Dict[str, str], own_name: str | None = None
+):
     # Iterate by idx because we want to update it inplace
     for i in range(len(dependencies)):
         dep_str = dependencies[i]
@@ -93,7 +95,11 @@ def update_pyproject_dependencies(dependencies: list, schedule: Dict[str, str]):
             continue
         pkg, extras, spec, env = parse_pep_dependency(dep_str)
         schedule_key = canonicalize_name(pkg)
-        if isinstance(spec, Url) or schedule_key not in schedule:
+        if (
+            isinstance(spec, Url)
+            or schedule_key == own_name
+            or schedule_key not in schedule
+        ):
             continue
         new_lower_bound = Version(schedule[schedule_key])
         try:
@@ -126,11 +132,13 @@ def iter_pep_dependency_lists(pyproject_data: dict, project_data: dict):
                 yield dependencies
 
 
-def update_dependency_table(dep_table: dict, new_versions: dict):
+def update_dependency_table(
+    dep_table: dict, new_versions: dict, own_name: str | None = None
+):
     for pkg, pkg_data in dep_table.items():
         schedule_key = canonicalize_name(pkg)
-        # Don't do anything for pkgs that aren't in our schedule
-        if schedule_key not in new_versions:
+        # Don't do anything for the package itself or pkgs that aren't in our schedule
+        if schedule_key == own_name or schedule_key not in new_versions:
             continue
         # Like pkg = ">x.y.z,<a"
         if isinstance(pkg_data, str):
@@ -159,18 +167,24 @@ def update_dependency_table(dep_table: dict, new_versions: dict):
             pkg_data["version"] = repr_spec_set(spec)
 
 
-def update_pixi_dependencies(pixi_tables: dict, schedule: Dict[str, str]):
+def update_pixi_dependencies(
+    pixi_tables: dict, schedule: Dict[str, str], own_name: str | None = None
+):
     if "pypi-dependencies" in pixi_tables:
-        update_dependency_table(pixi_tables["pypi-dependencies"], schedule)
+        update_dependency_table(pixi_tables["pypi-dependencies"], schedule, own_name)
     if "dependencies" in pixi_tables:
-        update_dependency_table(pixi_tables["dependencies"], schedule)
+        update_dependency_table(pixi_tables["dependencies"], schedule, own_name)
 
     if "feature" in pixi_tables:
         for _, feature_data in pixi_tables["feature"].items():
             if "dependencies" in feature_data:
-                update_dependency_table(feature_data["dependencies"], schedule)
+                update_dependency_table(
+                    feature_data["dependencies"], schedule, own_name
+                )
             if "pypi-dependencies" in feature_data:
-                update_dependency_table(feature_data["pypi-dependencies"], schedule)
+                update_dependency_table(
+                    feature_data["pypi-dependencies"], schedule, own_name
+                )
 
 
 def update_pyproject_toml(
@@ -198,6 +212,13 @@ def update_pyproject_toml(
     project_data = pyproject_data.get("project", {})
     if not isinstance(project_data, dict):
         project_data = {}
+    # Self-references like "pkg[extras]" are used to share extras between
+    # dependency groups, their version is always the local one so never pin it.
+    own_name = project_data.get("name")
+    if isinstance(own_name, str):
+        own_name = canonicalize_name(own_name)
+    else:
+        own_name = None
     if "python" in new_version and isinstance(project_data, dict):
         current_requires_python = project_data.get("requires-python")
         if current_requires_python:
@@ -213,18 +234,22 @@ def update_pyproject_toml(
         project_data["requires-python"] = repr_spec_set(python_spec)
 
     for dependencies in iter_pep_dependency_lists(pyproject_data, project_data):
-        update_pyproject_dependencies(dependencies, new_version)
+        update_pyproject_dependencies(dependencies, new_version, own_name)
 
     if "tool" in pyproject_data and "pixi" in pyproject_data["tool"]:
         pixi_data = pyproject_data["tool"]["pixi"]
-        update_pixi_dependencies(pixi_data, new_version)
+        update_pixi_dependencies(pixi_data, new_version, own_name)
     if update_all is not None:
         for deps in iter_pep_dependency_lists(pyproject_data, project_data):
             for i, dep_str in enumerate(deps):
                 if not isinstance(dep_str, str):
                     continue
                 pkg, extras, spec, env = parse_pep_dependency(dep_str)
-                if canonicalize_name(pkg) in new_version or isinstance(spec, Url):
+                if (
+                    canonicalize_name(pkg) in new_version
+                    or canonicalize_name(pkg) == own_name
+                    or isinstance(spec, Url)
+                ):
                     continue
                 min_ver = _get_oldest_version_in_window(pkg, update_all)
                 if min_ver is None:
