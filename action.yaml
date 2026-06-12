@@ -58,26 +58,32 @@ runs:
         fileName: "schedule.json"
     - name: Run update script
       shell: bash
+      env:
+        PROJECT_FILE_NAME: ${{ inputs.project_file_name }}
+        SCHEDULE_INPUT: ${{ inputs.schedule_path }}
+        UPDATE_ALL: ${{ inputs.update_all }}
       run: |
         set -e
-        if [ -n "${{ inputs.schedule_path }}" ]; then
-          SCHEDULE_PATH="${{ github.workspace }}/${{ inputs.schedule_path }}"
+        if [ -n "$SCHEDULE_INPUT" ]; then
+          SCHEDULE_PATH="${GITHUB_WORKSPACE}/${SCHEDULE_INPUT}"
         else
-          SCHEDULE_PATH="${{ github.workspace }}/schedule.json"
+          SCHEDULE_PATH="${GITHUB_WORKSPACE}/schedule.json"
         fi
-        echo "Updating ${{ inputs.project_file_name }} using schedule $SCHEDULE_PATH"
-        UPDATE_ALL_FLAG=""
-        if [ -n "${{ inputs.update_all }}" ]; then
-          UPDATE_ALL_FLAG="--update-all ${{ inputs.update_all }}"
+        echo "Updating ${PROJECT_FILE_NAME} using schedule ${SCHEDULE_PATH}"
+        UPDATE_ALL_ARGS=()
+        if [ -n "$UPDATE_ALL" ]; then
+          UPDATE_ALL_ARGS=(--update-all "$UPDATE_ALL")
         fi
-        pixi run --manifest-path ${{ github.action_path }}/pyproject.toml update-dependencies "${{ github.workspace }}/${{ inputs.project_file_name }}" "$SCHEDULE_PATH" $UPDATE_ALL_FLAG
+        pixi run --manifest-path "${GITHUB_ACTION_PATH}/pyproject.toml" update-dependencies "${GITHUB_WORKSPACE}/${PROJECT_FILE_NAME}" "$SCHEDULE_PATH" "${UPDATE_ALL_ARGS[@]}"
     - name: Changes
       id: changes
       shell: bash
+      env:
+        PROJECT_FILE_NAME: ${{ inputs.project_file_name }}
       run: |
         echo "Showing changes that would be committed"
-        git --no-pager diff ${{ inputs.project_file_name }}
-        if git diff --quiet ${{ inputs.project_file_name }}; then
+        git --no-pager diff -- "$PROJECT_FILE_NAME"
+        if git diff --quiet -- "$PROJECT_FILE_NAME"; then
           echo "changes_detected=false" >> "$GITHUB_OUTPUT"
         else
           echo "changes_detected=true"  >> "$GITHUB_OUTPUT"

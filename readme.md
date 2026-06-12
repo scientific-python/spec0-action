@@ -22,11 +22,17 @@ permissions:
   contents: write
   pull-requests: write
 
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
 jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - uses: scientific-python/spec0-action@v1
+      - uses: scientific-python/spec0-action@8b8b76f254aecce36e6f07de7dde174cb3cafa81 # v1.3
+        with:
+          update_all: 2 # also bump non-SPEC0 deps older than 2 years
 ```
 
 No PAT required.

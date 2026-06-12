@@ -28,7 +28,6 @@ def parse_version_spec(s: str) -> SpecifierSet:
         # see https://packaging.python.org/en/latest/specifications/version-specifiers/
         return SpecifierSet(">=0")
     try:
-        # If we can simply parse it return it
         return SpecifierSet(s)
     except InvalidSpecifier:
         try:
@@ -39,7 +38,7 @@ def parse_version_spec(s: str) -> SpecifierSet:
                 try:
                     return SpecifierSet(f"=={s}")
                 except InvalidVersion:
-                    # if we don't return later raise is the same
+                    # fall through to the raise below
                     pass
 
             raise ValueError(f"{s} is not a version or specifyer")
