@@ -1,7 +1,6 @@
-import contextlib
-from collections import defaultdict
+from functools import cache
 from packaging.specifiers import SpecifierSet
-from typing import Sequence, Dict
+from typing import Callable, Sequence, Dict
 import datetime
 import requests
 
@@ -28,6 +27,7 @@ from packaging.utils import (
 __all__ = ["read_schedule", "read_toml", "write_toml", "update_pyproject_toml"]
 
 
+@cache
 def _get_oldest_version_in_window(package: str, years: float) -> Version | None:
     """
     Query PyPI, return oldest non-pre release version uploaded within the last ``years`` years.
@@ -45,28 +45,23 @@ def _get_oldest_version_in_window(package: str, years: float) -> Version | None:
         data = resp.json()
     except Exception:
         return None
-    release_dates: dict[Version, list[datetime.datetime]] = defaultdict(list)
+    first_uploads: dict[Version, datetime.datetime] = {}
     for f in data.get("files", []):
         ver = _version_from_filename(f.get("filename", ""))
         if ver is None or ver.is_prerelease:
             continue
 
-        upload_str = f.get("upload-time", "")
-        upload_time = None
-        for fmt in ["%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ"]:
-            with contextlib.suppress(ValueError):
-                upload_time = datetime.datetime.strptime(upload_str, fmt).replace(
-                    tzinfo=datetime.timezone.utc
-                )
-                break
-        if upload_time is None:
+        try:
+            upload_time = datetime.datetime.fromisoformat(f.get("upload-time", ""))
+        except ValueError:
             continue
-        release_dates[ver].append(upload_time)
+
+        previous = first_uploads.get(ver)
+        if previous is None or upload_time < previous:
+            first_uploads[ver] = upload_time
 
     candidates = [
-        ver
-        for ver, upload_times in release_dates.items()
-        if min(upload_times) >= cutoff
+        ver for ver, first_upload in first_uploads.items() if first_upload >= cutoff
     ]
     return min(candidates, default=None)
 
@@ -86,105 +81,101 @@ def _version_from_filename(filename: str) -> Version | None:
 
 
 def update_pyproject_dependencies(
-    dependencies: list, schedule: Dict[str, str], own_name: str | None = None
+    dependencies: list,
+    resolve_lower_bound: Callable[[str], Version | None],
+    own_name: str | None,
 ):
-    # Iterate by idx because we want to update it inplace
-    for i in range(len(dependencies)):
-        dep_str = dependencies[i]
+    # Assign by index so the (tomlkit) list is updated in place
+    for i, dep_str in enumerate(dependencies):
         if not isinstance(dep_str, str):
             continue
         pkg, extras, spec, env = parse_pep_dependency(dep_str)
-        schedule_key = canonicalize_name(pkg)
-        if (
-            isinstance(spec, Url)
-            or schedule_key == own_name
-            or schedule_key not in schedule
-        ):
+        package_key = canonicalize_name(pkg)
+        if isinstance(spec, Url) or package_key == own_name:
             continue
-        new_lower_bound = Version(schedule[schedule_key])
-        try:
-            spec = tighten_lower_bound(spec or SpecifierSet(), new_lower_bound)
-            # Will raise a value error if bound is already tighter, in this case we just do nothing and  continue
-        except ValueError:
+        new_lower_bound = resolve_lower_bound(package_key)
+        if new_lower_bound is None:
             continue
-        if not extras:
-            new_dep_str = f"{pkg}{repr_spec_set(spec)}{env or ''}"
-        else:
-            new_dep_str = f"{pkg}{extras}{repr_spec_set(spec)}{env or ''}"
-        dependencies[i] = new_dep_str
+        new_spec = tighten_lower_bound(spec or SpecifierSet(), new_lower_bound)
+        if new_spec is None or new_spec == spec:
+            # Skip no-op updates so unchanged specs keep their original formatting
+            continue
+        dependencies[i] = f"{pkg}{extras or ''}{repr_spec_set(new_spec)}{env or ''}"
 
 
-def iter_pep_dependency_lists(pyproject_data: dict, project_data: dict):
-    dependencies = project_data.get("dependencies")
-    if isinstance(dependencies, list):
-        yield dependencies
-
-    optional_dependencies = project_data.get("optional-dependencies", {})
-    if isinstance(optional_dependencies, dict):
-        for dependencies in optional_dependencies.values():
-            if isinstance(dependencies, list):
-                yield dependencies
-
-    dependency_groups = pyproject_data.get("dependency-groups", {})
-    if isinstance(dependency_groups, dict):
-        for dependencies in dependency_groups.values():
-            if isinstance(dependencies, list):
-                yield dependencies
+def iter_pep_dependency_lists(pyproject_data: dict):
+    project_data = pyproject_data.get("project")
+    project_data = project_data if isinstance(project_data, dict) else {}
+    groups = [project_data.get("dependencies")]
+    for table in (
+        project_data.get("optional-dependencies"),
+        pyproject_data.get("dependency-groups"),
+    ):
+        if isinstance(table, dict):
+            groups.extend(table.values())
+    yield from (group for group in groups if isinstance(group, list))
 
 
 def update_dependency_table(
-    dep_table: dict, new_versions: dict, own_name: str | None = None
+    dep_table: dict, new_versions: Dict[str, Version], own_name: str | None
 ):
     for pkg, pkg_data in dep_table.items():
-        schedule_key = canonicalize_name(pkg)
-        # Don't do anything for the package itself or pkgs that aren't in our schedule
-        if schedule_key == own_name or schedule_key not in new_versions:
+        package_key = canonicalize_name(pkg)
+        if package_key == own_name or package_key not in new_versions:
             continue
         # Like pkg = ">x.y.z,<a"
         if isinstance(pkg_data, str):
-            if not is_url_spec(pkg_data):
-                spec = parse_version_spec(pkg_data)
-                new_lower_bound = Version(new_versions[schedule_key])
-                try:
-                    spec = tighten_lower_bound(spec, new_lower_bound)
-                except ValueError:
-                    continue
-                dep_table[pkg] = repr_spec_set(spec)
-            else:
-                # We don't do anything with url spec dependencies
+            if is_url_spec(pkg_data):
                 continue
+            spec_str = pkg_data
+        elif isinstance(pkg_data, dict) and "version" in pkg_data:
+            # Table like pkg = {version = ">x.y.z", ...}
+            spec_str = pkg_data["version"]
         else:
-            # Table like in tests = {path = "."}
-            if not isinstance(pkg_data, dict) or "version" not in pkg_data:
-                # We don't do anything with path, url, git, or other non-version dependencies
-                continue
-            spec = parse_version_spec(pkg_data["version"])
-            new_lower_bound = Version(new_versions[schedule_key])
-            try:
-                spec = tighten_lower_bound(spec, new_lower_bound)
-            except ValueError:
-                continue
-            pkg_data["version"] = repr_spec_set(spec)
+            # We don't do anything with path, url, git, or other non-version dependencies
+            continue
+        current_spec = parse_version_spec(spec_str)
+        new_spec = tighten_lower_bound(current_spec, new_versions[package_key])
+        if new_spec is None or new_spec == current_spec:
+            continue
+        if isinstance(pkg_data, str):
+            dep_table[pkg] = repr_spec_set(new_spec)
+        else:
+            pkg_data["version"] = repr_spec_set(new_spec)
 
 
 def update_pixi_dependencies(
-    pixi_tables: dict, schedule: Dict[str, str], own_name: str | None = None
+    pixi_tables: dict, new_versions: Dict[str, Version], own_name: str | None
 ):
-    if "pypi-dependencies" in pixi_tables:
-        update_dependency_table(pixi_tables["pypi-dependencies"], schedule, own_name)
-    if "dependencies" in pixi_tables:
-        update_dependency_table(pixi_tables["dependencies"], schedule, own_name)
+    for key in ("dependencies", "pypi-dependencies"):
+        dep_table = pixi_tables.get(key)
+        if isinstance(dep_table, dict):
+            update_dependency_table(dep_table, new_versions, own_name)
 
-    if "feature" in pixi_tables:
-        for _, feature_data in pixi_tables["feature"].items():
-            if "dependencies" in feature_data:
-                update_dependency_table(
-                    feature_data["dependencies"], schedule, own_name
-                )
-            if "pypi-dependencies" in feature_data:
-                update_dependency_table(
-                    feature_data["pypi-dependencies"], schedule, own_name
-                )
+    # Recurse into [tool.pixi.feature.X] and platform tables like
+    # [tool.pixi.target.linux-64], which hold the same dependency keys
+    for key in ("feature", "target"):
+        subtables = pixi_tables.get(key)
+        if isinstance(subtables, dict):
+            for subtable in subtables.values():
+                if isinstance(subtable, dict):
+                    update_pixi_dependencies(subtable, new_versions, own_name)
+
+
+def _update_requires_python(project_data: dict, new_lower_bound: Version):
+    current_requires_python = project_data.get("requires-python")
+    if not current_requires_python:
+        project_data["requires-python"] = f">={new_lower_bound}"
+        return
+    try:
+        current_spec = parse_version_spec(current_requires_python)
+    except ValueError:
+        # Leave specs we can't parse (e.g. poetry-style "^3.10") alone
+        return
+    new_spec = tighten_lower_bound(current_spec, new_lower_bound)
+    if new_spec is not None and new_spec != current_spec:
+        # Only write when the bound actually moved, to avoid cosmetic rewrites
+        project_data["requires-python"] = repr_spec_set(new_spec)
 
 
 def update_pyproject_toml(
@@ -200,11 +191,11 @@ def update_pyproject_toml(
         ),
         key=lambda s: datetime.datetime.fromisoformat(s["start_date"]),
     )
-    new_version = {}
+    new_version: Dict[str, Version] = {}
     for schedule in applicable:
         # Fill in the latest known requirement (schedule is sorted, newer entries overwrite older)
         for pkg, version in schedule["packages"].items():
-            new_version[canonicalize_name(pkg)] = version
+            new_version[canonicalize_name(pkg)] = Version(version)
     if not new_version:
         raise RuntimeError(
             "Could not find schedule that applies to current time, perhaps your schedule is outdated."
@@ -215,47 +206,20 @@ def update_pyproject_toml(
     # Self-references like "pkg[extras]" are used to share extras between
     # dependency groups, their version is always the local one so never pin it.
     own_name = project_data.get("name")
-    if isinstance(own_name, str):
-        own_name = canonicalize_name(own_name)
-    else:
-        own_name = None
-    if "python" in new_version and isinstance(project_data, dict):
-        current_requires_python = project_data.get("requires-python")
-        if current_requires_python:
-            try:
-                python_spec = tighten_lower_bound(
-                    parse_version_spec(current_requires_python),
-                    Version(new_version["python"]),
-                )
-            except ValueError:
-                python_spec = parse_version_spec(current_requires_python)
-        else:
-            python_spec = parse_version_spec(new_version["python"])
-        project_data["requires-python"] = repr_spec_set(python_spec)
+    own_name = canonicalize_name(own_name) if isinstance(own_name, str) else None
 
-    for dependencies in iter_pep_dependency_lists(pyproject_data, project_data):
-        update_pyproject_dependencies(dependencies, new_version, own_name)
+    if "python" in new_version:
+        _update_requires_python(project_data, new_version["python"])
+
+    def resolve_lower_bound(package_key: str) -> Version | None:
+        if package_key in new_version:
+            return new_version[package_key]
+        if update_all is not None:
+            return _get_oldest_version_in_window(package_key, update_all)
+        return None
+
+    for dependencies in iter_pep_dependency_lists(pyproject_data):
+        update_pyproject_dependencies(dependencies, resolve_lower_bound, own_name)
 
     if "tool" in pyproject_data and "pixi" in pyproject_data["tool"]:
-        pixi_data = pyproject_data["tool"]["pixi"]
-        update_pixi_dependencies(pixi_data, new_version, own_name)
-    if update_all is not None:
-        for deps in iter_pep_dependency_lists(pyproject_data, project_data):
-            for i, dep_str in enumerate(deps):
-                if not isinstance(dep_str, str):
-                    continue
-                pkg, extras, spec, env = parse_pep_dependency(dep_str)
-                if (
-                    canonicalize_name(pkg) in new_version
-                    or canonicalize_name(pkg) == own_name
-                    or isinstance(spec, Url)
-                ):
-                    continue
-                min_ver = _get_oldest_version_in_window(pkg, update_all)
-                if min_ver is None:
-                    continue
-                try:
-                    updated = tighten_lower_bound(spec or SpecifierSet(), min_ver)
-                    deps[i] = f"{pkg}{extras or ''}{repr_spec_set(updated)}{env or ''}"
-                except ValueError:
-                    continue
+        update_pixi_dependencies(pyproject_data["tool"]["pixi"], new_version, own_name)
