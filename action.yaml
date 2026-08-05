@@ -23,6 +23,10 @@ inputs:
     description: "The title of the PR that will be opened. by default 'Drop support for unsupported packages conform SPEC 0'. has no effect if `create_pr` is set to false"
     required: false
     default: "chore: Drop support for unsupported packages conform SPEC 0"
+  pr_body:
+    description: "The body of the PR that will be opened. Defaults to 'This automated PR updates the lower bounds of Python dependencies using the schedule defined in SPEC 0.'"
+    required: false
+    default: "This automated PR updates the lower bounds of Python dependencies using the schedule defined in SPEC 0."
   schedule_path:
     description: "Path to the schedule.json file relative to the project root. If not provided, the schedule bundled with the action is used."
     required: false
@@ -95,7 +99,7 @@ runs:
         token: ${{ inputs.token || github.token }}
         commit-message: ${{ inputs.commit_msg }}
         title: ${{ inputs.pr_title }}
-        body: "This PR was created automatically"
+        body: ${{ inputs.pr_body }}
         base: ${{ inputs.target_branch }}
         branch: update-spec0-dependencies-${{ github.run_id }}
         add-paths: |
