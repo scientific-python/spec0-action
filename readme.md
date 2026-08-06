@@ -53,6 +53,8 @@ The built-in `GITHUB_TOKEN` is used by default as long as the workflow has `pull
 
 For examples of before/after see [tests/test_data/pyproject.toml](./tests/test_data/pyproject.toml) and [tests/test_data/pyproject_updated.toml](./tests/test_data/pyproject_updated.toml).
 
+SPEC 0 packages include `ipython`, `matplotlib`, `networkx`, `numpy`, `pandas`, `scikit-image`, `scikit-learn`, `scipy`, `xarray`, and `zarr`.
+
 ## Limitations
 
 1. The action only tightens lower bounds and leaves upper bounds untouched. An update can produce an unsolvable environment — for example `numpy = ">=1.25.0,<2"` becomes `numpy = ">=2.0.0,<2"`. Keeping the environment solvable is out of scope; adjust upper bounds manually if needed.
