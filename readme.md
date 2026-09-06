@@ -14,7 +14,8 @@ name: Update SPEC 0 dependencies
 
 on:
   schedule:
-    # Day 3 of each quarter. Allows one day buffer after the quarterly schedule release on day 1
+    # Day 3 of each quarter.
+Allows one day buffer after the quarterly schedule release on day 1
     - cron: "0 0 3 1,4,7,10 *"
   workflow_dispatch:
 
@@ -59,7 +60,8 @@ SPEC 0 packages include `ipython`, `matplotlib`, `networkx`, `numpy`, `pandas`, 
 
 ### Excluding packages
 
-To keep a package's lower bound as-is, for example to stay compatible with NumPy 1.26 while everything else updates, list it in `excluded_packages` before the action raises its bound (bounds are never lowered). Separate names with commas or whitespace; `python` excludes the Python requirement:
+To keep a package's lower bound as-is, for example to stay compatible with NumPy 1.26 while everything else updates, list it in `excluded_packages` before the action raises its bound (bounds are never lowered).
+Separate names with commas or whitespace; `python` excludes the Python requirement:
 
 ```yaml
 with:
@@ -69,11 +71,13 @@ with:
     python
 ```
 
-Exclusions win over the schedule, `spec0_support_years`, and `update_all`, and excluded packages cause no PyPI lookup. The CLI takes the same value via `--excluded-packages`.
+Exclusions win over the schedule, `spec0_support_years`, and `update_all`, and excluded packages cause no PyPI lookup.
+The CLI takes the same value via `--excluded-packages`.
 
 ### Changing the core-package support period
 
-The supplied schedule gives SPEC 0 packages two years of support. To use three years for those packages while updating other dependencies independently:
+The supplied schedule gives SPEC 0 packages two years of support.
+To use three years for those packages while updating other dependencies independently:
 
 ```yaml
 with:
@@ -81,22 +85,28 @@ with:
   update_all: 2
 ```
 
-A year is 365 days. For each feature release (`X.Y.0`; pre-, post-, and patch releases are ignored), support ends at the start of the quarter containing its release date plus the period, and the floor moves to the next feature release. Floors come from the full PyPI release history, so any explicit value, even `2`, can differ from a published schedule snapshot. Python always follows the schedule.
+For each release (`X.Y.0`; pre-, post-, and patch releases are ignored), support ends at the start of the quarter containing its release date plus the period, and the floor moves to the next release.
+Floors come from the PyPI release history, so any explicit value, can differ from a published schedule snapshot.
+Python always follows the schedule.
 
-Precedence is `excluded_packages`, then `spec0_support_years` for SPEC 0 packages, then the schedule, then `update_all` for the remaining PEP dependencies (never Pixi tables). If PyPI cannot be reached, the affected dependency stays unchanged with a warning rather than falling back to the schedule or `update_all`. Bounds are never lowered, so configure the period before a bound is raised.
+Precedence is `excluded_packages`, then `spec0_support_years` for SPEC 0 packages, then the schedule, then `update_all` for the remaining PEP dependencies.
+If PyPI cannot be reached, the affected dependency stays unchanged with a warning rather than falling back to the schedule or `update_all`.
 
 The CLI takes `--spec0-support-years 3` and the Python API `spec0_support_years=3`.
 
 ## Limitations
 
-1. The action only tightens lower bounds and leaves upper bounds untouched. A proposed floor that conflicts with an existing constraint is skipped; for example, `numpy = ">=1.25.0,<2"` stays unchanged when the proposed floor is `2.0.0`. It does not solve the full dependency graph or guarantee a compatible environment.
+1. The action only tightens lower bounds and leaves upper bounds untouched.
+   A proposed floor that conflicts with an existing constraint is skipped; for example, `numpy = ">=1.25.0,<2"` stays unchanged when the proposed floor is `2.0.0`.
+   It does not solve the full dependency graph or guarantee a compatible environment.
 2. Only `pyproject.toml` is currently supported.
 
 ## Maintainer notes
 
 ### Releasing a new action version
 
-Action versions are **git tags only**, do not create a GitHub Release for them. GitHub Releases in this repository are reserved for the quarterly schedule data.
+Action versions are **git tags only**, do not create a GitHub Release for them.
+GitHub Releases in this repository are reserved for the quarterly schedule data.
 
 ```bash
 git tag v1.x
@@ -105,13 +115,15 @@ git push origin v1.x
 
 ### Schedule releases
 
-The SPEC 0 schedule (`schedule.json` and `schedule.md`) is published as a GitHub Release quarterly by the [Update SPEC 0 schedule](./.github/workflows/update_schedule.yml) workflow. Releases are tagged `schedule-YYYY-QN` (e.g. `schedule-2026-Q2`).
+The SPEC 0 schedule (`schedule.json` and `schedule.md`) is published as a GitHub Release quarterly by the [Update SPEC 0 schedule](./.github/workflows/update_schedule.yml) workflow.
+Releases are tagged `schedule-YYYY-QN` (e.g. `schedule-2026-Q2`).
 
 The action always fetches `schedule.json` from the **latest** GitHub Release in this repository, which will always be a schedule release as long as action versions are never published as releases.
 
 #### Bootstrap
 
-Before the first quarterly schedule release exists, the action will fail. To create the initial release, trigger the workflow manually:
+Before the first quarterly schedule release exists, the action will fail.
+To create the initial release, trigger the workflow manually:
 
 1. Go to **Actions → Update SPEC 0 schedule**
 2. Click **Run workflow**
