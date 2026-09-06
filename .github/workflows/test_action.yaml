@@ -17,7 +17,10 @@ concurrency:
 jobs:
   generate_data:
     runs-on: ubuntu-latest
-    name: Run action on test file in repo
+    strategy:
+      matrix:
+        excluded_packages: ["", "numpy,\nscikit-learn"]
+    name: "Run action with exclusions: ${{ matrix.excluded_packages }}"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -27,3 +30,29 @@ jobs:
           project_file_name: tests/test_data/pyproject.toml
           create_pr: false
           schedule_path: tests/test_data/test_schedule.json
+          excluded_packages: ${{ matrix.excluded_packages }}
+      - name: Check dependency updates
+        env:
+          EXCLUDED_PACKAGES: ${{ matrix.excluded_packages }}
+        run: |
+          pixi run python - <<'PY'
+          import os
+          import subprocess
+          import tomllib
+          from pathlib import Path
+
+          path = "tests/test_data/pyproject.toml"
+          original = tomllib.loads(subprocess.check_output(["git", "show", f"HEAD:{path}"], text=True))
+          updated = tomllib.loads(Path(path).read_text())
+          before = original["project"]["dependencies"]
+          after = updated["project"]["dependencies"]
+          for package in ("numpy", "scikit-learn"):
+              old = [dep for dep in before if dep.startswith(package)]
+              new = [dep for dep in after if dep.startswith(package)]
+              assert old and new
+              if os.environ["EXCLUDED_PACKAGES"]:
+                  assert new == old, (old, new)
+              else:
+                  assert new != old, (old, new)
+          assert [dep for dep in after if dep.startswith("pandas")] != [dep for dep in before if dep.startswith("pandas")]
+          PY

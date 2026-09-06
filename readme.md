@@ -50,10 +50,37 @@ The built-in `GITHUB_TOKEN` is used by default as long as the workflow has `pull
 | `pr_title`          | no       | `chore: Drop support for unsupported packages conform SPEC 0` | Title of the opened PR                                                                                           |
 | `commit_msg`        | no       | `chore: Drop support for unsupported packages conform SPEC 0` | Commit message for the version update commit                                                                     |
 | `update_all`        | no       | —                                                             | If set to a number N, also update non-SPEC0 dependencies to versions released within the last N years (e.g. `2`) |
+| `excluded_packages` | no       | —                                                             | Comma- or whitespace-separated package names to leave unchanged, including with `update_all`                     |
 
 For examples of before/after see [tests/test_data/pyproject.toml](./tests/test_data/pyproject.toml) and [tests/test_data/pyproject_updated.toml](./tests/test_data/pyproject_updated.toml).
 
 SPEC 0 packages include `ipython`, `matplotlib`, `networkx`, `numpy`, `pandas`, `scikit-image`, `scikit-learn`, `scipy`, `xarray`, and `zarr`.
+
+### Excluding packages
+
+If you want to exclude a package for example, you want to keep compatibility with NumPy 1.26 while updating the other dependencies, add `excluded_packages: "numpy"` to the action's `with` settings before its lower bound is raised.
+
+Separate names with commas or whitespace, including multiline YAML:
+
+```yaml
+with:
+  update_all: 2
+  excluded_packages: |
+    numpy, scikit-learn
+    python
+```
+
+Matching ignores case and treats dots, underscores, and hyphens as equivalent: `Scikit.Learn` matches `scikit-learn`.
+Use bare package names; requirements such as `numpy>=1.26`, extras such as `numpy[extra]`, and wildcards are rejected.
+
+Exclusions take precedence over both the supplied schedule (including custom schedules) and `update_all`.
+Excluding `python` also preserves `project.requires-python` and Pixi Python constraints; a missing `requires-python` stays absent.
+
+The CLI accepts the same syntax:
+
+```bash
+python run_spec0_update.py pyproject.toml schedule.json --excluded-packages "numpy, python"
+```
 
 ## Limitations
 
