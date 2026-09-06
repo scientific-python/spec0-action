@@ -1,12 +1,9 @@
-import collections
 import json
 from datetime import datetime, timedelta
 
 import pandas as pd
-import requests
-from packaging.version import InvalidVersion, Version
 
-from spec0_action import CORE_PACKAGES
+from spec0_action import CORE_PACKAGES, _get_feature_release_dates
 
 PY_RELEASES = {
     "3.8": "Oct 14, 2019",
@@ -33,41 +30,15 @@ CUTOFF = CURRENT_QUARTER_START - pd.DateOffset(months=9)
 
 def get_release_dates(package, support_time=PLUS_24_MONTHS):
     releases = {}
-    print(f"Querying pypi.org for {package} versions...", end="", flush=True)
-    response = requests.get(
-        f"https://pypi.org/simple/{package}",
-        headers={"Accept": "application/vnd.pypi.simple.v1+json"},
-    ).json()
-    print("OK")
-    file_date = collections.defaultdict(list)
-    for f in response["files"]:
-        if f["filename"].endswith(".tar.gz") or f["filename"].endswith(".zip"):
-            continue
-        ver = f["filename"].split("-")[1]
-        try:
-            version = Version(ver)
-        except InvalidVersion as e:
-            print(f"Error: '{ver}' is an invalid version for '{package}'. Reason: {e}")
-            continue
-        if version.is_prerelease or version.micro != 0:
-            continue
-        release_date = None
-        for format in ["%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ"]:
-            try:
-                release_date = datetime.strptime(f["upload-time"], format)
-            except ValueError as e:
-                print(f"Error parsing invalid date: {e}")
-        if not release_date:
-            continue
-        file_date[version].append(release_date)
-    release_dates = {v: min(file_date[v]) for v in file_date}
-    for ver, release_date in sorted(release_dates.items()):
-        drop_date = release_date + support_time
-        if drop_date >= CUTOFF:
-            releases[ver] = {
-                "release_date": release_date,
-                "drop_date": drop_date,
-            }
+    for version, release_date in _get_feature_release_dates(package):
+        # Pandas quarter calculations below use naive UTC dates.
+        release_date = release_date.replace(tzinfo=None)
+        releases[version] = {
+            "release_date": release_date,
+            "drop_date": release_date + support_time,
+        }
+    if not releases:
+        raise RuntimeError(f"Could not find feature releases for {package}")
     return releases
 
 

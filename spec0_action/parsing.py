@@ -1,21 +1,11 @@
 import json
 from collections.abc import Sequence
 from pathlib import Path
-from re import compile
-from typing import TypeAlias, TypedDict
-from urllib.parse import ParseResult, urlparse
+from typing import TypedDict
 
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
-from packaging.version import InvalidVersion, Version
+from packaging.version import Version
 from tomlkit import dumps, loads
-
-# We won't actually do anything with URLs we just need to detect them
-Url: TypeAlias = ParseResult
-
-# Slightly modified version of https://packaging.python.org/en/latest/specifications/dependency-specifiers/#names
-PEP_PACKAGE_IDENT_RE = compile(
-    r"(?im)^([A-Z0-9][A-Z0-9._-]*)(\[[A-Z0-9._,-]+\])?([^;]*)(;.*)?$"
-)
 
 
 class SupportSchedule(TypedDict):
@@ -31,20 +21,7 @@ def parse_version_spec(s: str) -> SpecifierSet:
     try:
         return SpecifierSet(s)
     except InvalidSpecifier:
-        try:
-            ver = Version(s)
-        except InvalidVersion:
-            if "*" in s:
-                # pixi sometimes uses things like python = "3.11.*"
-                try:
-                    return SpecifierSet(f"=={s}")
-                except InvalidVersion:
-                    # fall through to the raise below
-                    pass
-
-            raise ValueError(f"{s} is not a version or specifyer")
-
-        return SpecifierSet(f">={ver}")
+        return SpecifierSet(f"=={s}" if "*" in s else f">={Version(s)}")
 
 
 def write_toml(path: Path | str, data: dict):
@@ -62,27 +39,6 @@ def read_toml(path: Path | str) -> dict:
 def read_schedule(path: Path | str) -> Sequence[SupportSchedule]:
     with open(path) as file:
         return json.load(file)
-
-
-def parse_pep_dependency(
-    dep_str: str,
-) -> tuple[str, str | None, SpecifierSet | Url | None, str | None]:
-    match = PEP_PACKAGE_IDENT_RE.match(dep_str)
-    if match is None:
-        raise ValueError("Could not find any valid python package identifier")
-
-    pkg, extras, spec_str, env = match.groups()
-
-    extras = extras or None
-
-    if is_url_spec(spec_str):
-        spec = urlparse(spec_str.split("@")[1])
-    elif not spec_str:
-        spec = None
-    else:
-        spec = SpecifierSet(spec_str)
-
-    return (pkg, extras, spec, env)
 
 
 def is_url_spec(str_spec: str | None) -> bool:

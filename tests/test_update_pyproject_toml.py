@@ -61,6 +61,28 @@ def test_update_pyproject_toml(patch_datetime_now, schedule, name):
 
 
 @pytest.mark.parametrize(
+    ("dependency", "expected"),
+    [
+        ("xarray[io]>=2026.5.1", "xarray[io]>=2026.7.0"),
+        (
+            " xarray [io, parallel] (>=2026.5.1) ; python_version < '4'",
+            "xarray[io, parallel]>=2026.7.0; python_version < '4'",
+        ),
+        ("xarray[io] >= 2026.8.0", "xarray[io] >= 2026.8.0"),
+    ],
+)
+def test_pep_requirement_extras_and_whitespace(
+    patch_datetime_now, dependency, expected
+):
+    pyproject = _minimal_pyproject(dependency)
+    schedule = [
+        {"start_date": "2000-01-01T00:00:00Z", "packages": {"xarray": "2026.7.0"}}
+    ]
+    update_pyproject_toml(pyproject, schedule)
+    assert pyproject["project"]["dependencies"] == [expected]
+
+
+@pytest.mark.parametrize(
     ("update_all", "expected"), [(None, "requests>=2.0.0"), (2.0, "requests>=2.28.0")]
 )
 def test_update_all_controls_pypi_fallback(
@@ -166,6 +188,7 @@ def test_pixi_feature_pypi_dependencies_and_non_version_tables(
             "dependencies": {
                 "scikit-learn": {"git": "https://example.invalid/scikit-learn.git"},
                 "pandas": {"version": ">=1.0", "channel": "conda-forge"},
+                "numpy": ">=1.26|>=2.0",
             },
             "feature": {
                 "test": {
@@ -182,6 +205,7 @@ def test_pixi_feature_pypi_dependencies_and_non_version_tables(
 
     pixi = pyproject["tool"]["pixi"]
     assert pixi["feature"]["test"]["pypi-dependencies"]["Numpy"] == ">=2.0.0"
+    assert pixi["dependencies"]["numpy"] == ">=1.26|>=2.0"
     # version tables are updated in place, other keys kept
     assert pixi["dependencies"]["pandas"] == {
         "version": ">=2.2.0",
@@ -408,7 +432,7 @@ def feature_files():
             ("example-1.3.0.post1.tar.gz", "2020-01-01T00:00:00Z"),
             ("example-1.3.1.tar.gz", "2020-01-01T00:00:00Z"),
             ("example-1.3.0.1.tar.gz", "2020-01-01T00:00:00Z"),
-            ("example-1.3.0+local.tar.gz", "2020-01-01T00:00:00Z"),
+            ("example-1.3.0-py2.7.egg", "2020-01-01T00:00:00Z"),
         ]
     ]
 
@@ -547,30 +571,20 @@ def test_custom_support_skips_excluded_and_non_version_dependencies(
 
 
 @pytest.mark.parametrize(
-    "payload",
+    "files",
     [
-        {},
-        {"files": [{"filename": "numpy-1.0.tar.gz", "upload-time": "invalid"}]},
-        {
-            "files": [
-                {
-                    "filename": "numpy-1.0.post1.tar.gz",
-                    "upload-time": "2020-01-01T00:00:00Z",
-                }
-            ]
-        },
-        {
-            "files": [
-                {
-                    "filename": "numpy-1.0.tar.gz",
-                    "upload-time": "2000-01-01T00:00:00Z",
-                }
-            ]
-        },
+        [],
+        [
+            {
+                "filename": "numpy-1.0.post1.tar.gz",
+                "upload-time": "2020-01-01T00:00:00Z",
+            }
+        ],
+        [{"filename": "numpy-1.0.tar.gz", "upload-time": "2000-01-01T00:00:00Z"}],
     ],
 )
 def test_custom_support_without_a_floor_never_falls_back(
-    patch_datetime_now, schedule, payload
+    patch_datetime_now, schedule, files
 ):
     pyproject = _minimal_pyproject("numpy >= 0.5")
     pyproject["tool"] = {"pixi": {"dependencies": {"numpy": ">= 0.5"}}}
@@ -578,7 +592,7 @@ def test_custom_support_without_a_floor_never_falls_back(
         patch.object(
             spec0_action.requests,
             "get",
-            return_value=Mock(json=Mock(return_value=payload)),
+            return_value=_pypi_response(files),
         ) as get,
         _mock_pypi() as fallback,
     ):

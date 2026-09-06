@@ -5,7 +5,7 @@ from functools import cache
 from itertools import pairwise
 
 import requests
-from packaging.specifiers import SpecifierSet
+from packaging.requirements import Requirement
 from packaging.utils import (
     InvalidSdistFilename,
     InvalidWheelFilename,
@@ -17,9 +17,7 @@ from packaging.version import Version
 
 from spec0_action.parsing import (
     SupportSchedule,
-    Url,
     is_url_spec,
-    parse_pep_dependency,
     parse_version_spec,
     read_schedule,
     read_toml,
@@ -62,24 +60,27 @@ def _get_release_dates(package: str) -> dict[Version, datetime.datetime]:
         )
         resp.raise_for_status()
         data = resp.json()
-    except (requests.RequestException, ValueError) as exc:
+    except requests.RequestException as exc:
         logger.warning("Could not fetch %s releases from PyPI: %s", package, exc)
         return {}
     first_uploads: dict[Version, datetime.datetime] = {}
-    for f in data.get("files", []):
-        ver = _version_from_filename(f.get("filename", ""))
+    for f in data["files"]:
+        ver = _version_from_filename(f["filename"])
         if ver is None or ver.is_prerelease:
             continue
 
-        try:
-            upload_time = datetime.datetime.fromisoformat(f.get("upload-time", ""))
-        except ValueError:
-            continue
-
-        previous = first_uploads.get(ver)
-        if previous is None or upload_time < previous:
-            first_uploads[ver] = upload_time
+        upload_time = datetime.datetime.fromisoformat(f["upload-time"])
+        first_uploads[ver] = min(first_uploads.get(ver, upload_time), upload_time)
     return first_uploads
+
+
+def _get_feature_release_dates(package: str) -> list[tuple[Version, datetime.datetime]]:
+    """Return stable feature releases in version order, with their first uploads."""
+    return sorted(
+        (version, release_date)
+        for version, release_date in _get_release_dates(package).items()
+        if not version.is_postrelease and not any(version.release[2:])
+    )
 
 
 def _get_oldest_version_in_window(package: str, years: float) -> Version | None:
@@ -100,15 +101,10 @@ def _get_spec0_floor(
     package: str, support_time: datetime.timedelta, now: datetime.datetime
 ) -> Version | None:
     """Advance to each successor at the quarter start of its predecessor's drop."""
-    releases = sorted(
-        (version, release_date)
-        for version, release_date in _get_release_dates(package).items()
-        if not version.is_postrelease
-        and version.local is None
-        and not any(version.release[2:])
-    )
     floor = None
-    for (_, release_date), (successor, _) in pairwise(releases):
+    for (_, release_date), (successor, _) in pairwise(
+        _get_feature_release_dates(package)
+    ):
         if _quarter(release_date + support_time) <= _quarter(now):
             floor = successor
     return floor
@@ -120,15 +116,10 @@ def _quarter(date: datetime.datetime) -> tuple[int, int]:
 
 def _version_from_filename(filename: str) -> Version | None:
     try:
-        _, version, _, _ = parse_wheel_filename(filename)
-        return version
-    except InvalidWheelFilename:
-        pass
-
-    try:
-        _, version = parse_sdist_filename(filename)
-        return version
-    except InvalidSdistFilename:
+        if filename.endswith(".whl"):
+            return parse_wheel_filename(filename)[1]
+        return parse_sdist_filename(filename)[1]
+    except (InvalidWheelFilename, InvalidSdistFilename):
         return None
 
 
@@ -141,18 +132,24 @@ def update_pyproject_dependencies(
     for i, dep_str in enumerate(dependencies):
         if not isinstance(dep_str, str):
             continue
-        pkg, extras, spec, env = parse_pep_dependency(dep_str)
-        package_key = canonicalize_name(pkg)
-        if isinstance(spec, Url) or package_key in skip:
+        requirement = Requirement(dep_str)
+        package_key = canonicalize_name(requirement.name)
+        if requirement.url or package_key in skip:
             continue
         new_lower_bound = resolve_lower_bound(package_key)
         if new_lower_bound is None:
             continue
-        new_spec = tighten_lower_bound(spec or SpecifierSet(), new_lower_bound)
-        if new_spec is None or new_spec == spec:
+        new_spec = tighten_lower_bound(requirement.specifier, new_lower_bound)
+        if new_spec is None or new_spec == requirement.specifier:
             # Skip no-op updates so unchanged specs keep their original formatting
             continue
-        dependencies[i] = f"{pkg}{extras or ''}{repr_spec_set(new_spec)}{env or ''}"
+        # Keep the original extras and marker spelling when rewriting the bound.
+        suffix = dep_str.strip()[len(requirement.name) :].lstrip()
+        extras = suffix[: suffix.index("]") + 1] if requirement.extras else ""
+        _, separator, marker = dep_str.partition(";")
+        dependencies[i] = (
+            f"{requirement.name}{extras}{repr_spec_set(new_spec)}{separator}{marker}"
+        )
 
 
 def iter_pep_dependency_lists(pyproject_data: dict):
@@ -188,10 +185,14 @@ def update_dependency_table(
         else:
             # We don't do anything with path, url, git, or other non-version dependencies
             continue
+        try:
+            current_spec = parse_version_spec(spec_str)
+        except ValueError:
+            # Conda-only expressions, such as version alternatives, stay unchanged.
+            continue
         new_lower_bound = resolve_lower_bound(package_key)
         if new_lower_bound is None:
             continue
-        current_spec = parse_version_spec(spec_str)
         new_spec = tighten_lower_bound(current_spec, new_lower_bound)
         if new_spec is None or new_spec == current_spec:
             continue

@@ -86,6 +86,7 @@ with:
 ```
 
 For each release (`X.Y.0`; pre-, post-, and patch releases are ignored), support ends at the start of the quarter containing its release date plus the period, and the floor moves to the next release.
+The schedule generator and custom support periods use the earliest PyPI upload of a release, whether a source distribution or wheel; later uploads do not reset its age.
 Floors come from the PyPI release history, so any explicit value, can differ from a published schedule snapshot.
 Python always follows the schedule.
 
@@ -93,6 +94,7 @@ Precedence is `excluded_packages`, then `spec0_support_years` for SPEC 0 package
 If PyPI cannot be reached, the affected dependency stays unchanged with a warning rather than falling back to the schedule or `update_all`.
 
 The CLI takes `--spec0-support-years 3` and the Python API `spec0_support_years=3`.
+Extras such as `xarray[io]>=2026.5.1` and environment markers are preserved when bounds change.
 
 ## Limitations
 
@@ -100,6 +102,8 @@ The CLI takes `--spec0-support-years 3` and the Python API `spec0_support_years=
    A proposed floor that conflicts with an existing constraint is skipped; for example, `numpy = ">=1.25.0,<2"` stays unchanged when the proposed floor is `2.0.0`.
    It does not solve the full dependency graph or guarantee a compatible environment.
 2. Only `pyproject.toml` is currently supported.
+   This includes Pixi tables within the file; standalone Conda environment files are unsupported.
+   Conda-only version expressions such as `>=1.26|>=2.0` are left unchanged.
 
 ## Maintainer notes
 
