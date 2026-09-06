@@ -1,8 +1,10 @@
 import datetime
+from copy import deepcopy
 from unittest.mock import patch
 
 import pytest
 from packaging.version import Version
+from tomlkit import dumps
 
 from spec0_action.parsing import read_schedule, read_toml
 from spec0_action import update_pyproject_toml
@@ -162,7 +164,7 @@ def test_self_reference_skipped_even_when_in_schedule(patch_datetime_now, schedu
         (None, ">=3.12"),
         # incompatible: preserved byte-exact, not rewritten in normalized form
         (">= 3.9, < 3.12", ">= 3.9, < 3.12"),
-        # unparseable (poetry-style): left alone
+        # unparsable (poetry-style): left alone
         ("^3.10", "^3.10"),
     ],
 )
@@ -343,3 +345,138 @@ def test_update_all_queries_pypi_once_per_package(patch_datetime_now, schedule):
     assert requested_urls == ["https://pypi.org/simple/demo-pkg"]
     assert pyproject["project"]["dependencies"] == ["Demo_Pkg>=2.0.0"]
     assert pyproject["dependency-groups"]["dev"] == ["demo-pkg>=2.0.0"]
+
+
+@pytest.mark.parametrize("update_all", [None, 2.0])
+def test_excluded_pep_dependencies(patch_datetime_now, schedule, update_all):
+    deps = [
+        "NumPy[foo,bar] >= 1.10.0 ; python_version < '4'",
+        "scikit_LEARN >= 1.0",
+        "requests[socks] >= 2.0 ; sys_platform == 'win32'",
+        "pandas>=1.0",
+    ]
+    pyproject = _minimal_pyproject(*deps)
+    pyproject["project"]["optional-dependencies"] = {"test": deps.copy()}
+    pyproject["dependency-groups"] = {"dev": deps.copy()}
+
+    with _mock_pypi() as mock_pypi:
+        update_pyproject_toml(
+            pyproject,
+            schedule,
+            update_all,
+            excluded_packages=["numpy", "NUMPY", "Scikit.Learn", "requests", "absent"],
+        )
+
+    mock_pypi.assert_not_called()
+    expected = deps[:-1] + ["pandas>=2.2.0"]
+    assert pyproject["project"]["dependencies"] == expected
+    assert pyproject["project"]["optional-dependencies"]["test"] == expected
+    assert pyproject["dependency-groups"]["dev"] == expected
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        (),
+        ("feature", "test"),
+        ("target", "linux-64"),
+        ("feature", "test", "target", "linux-64"),
+    ],
+)
+@pytest.mark.parametrize("table_name", ["dependencies", "pypi-dependencies"])
+def test_excluded_pixi_dependencies(patch_datetime_now, schedule, location, table_name):
+    deps = {
+        "NumPy": ">= 1.10.0",
+        "scikit_learn": {"version": ">= 1.0", "extras": ["test"]},
+        "pandas": {"version": ">=1.0", "extras": ["test"]},
+    }
+    expected = deepcopy(deps)
+    expected["pandas"]["version"] = ">=2.2.0"
+    pyproject = _minimal_pyproject()
+    table = pyproject.setdefault("tool", {}).setdefault("pixi", {})
+    for key in location:
+        table = table.setdefault(key, {})
+    table[table_name] = deps
+
+    update_pyproject_toml(
+        pyproject, schedule, excluded_packages=["numpy", "SCIKIT.LEARN"]
+    )
+
+    assert table[table_name] == expected
+
+
+@pytest.mark.parametrize("current", [None, ">= 3.9, < 4"])
+def test_excluded_python(patch_datetime_now, schedule, current):
+    pyproject = _minimal_pyproject("numpy>=1.10.0")
+    if current is None:
+        del pyproject["project"]["requires-python"]
+    else:
+        pyproject["project"]["requires-python"] = current
+    pyproject["tool"] = {
+        "pixi": {
+            "dependencies": {"Python": ">= 3.9"},
+            "feature": {
+                "test": {
+                    "target": {
+                        "linux-64": {
+                            "pypi-dependencies": {
+                                "python": {"version": ">= 3.9", "extras": ["test"]}
+                            }
+                        }
+                    }
+                }
+            },
+        }
+    }
+    expected_tool = deepcopy(pyproject["tool"])
+
+    update_pyproject_toml(pyproject, schedule, excluded_packages=["PYTHON"])
+
+    if current is None:
+        assert "requires-python" not in pyproject["project"]
+    else:
+        assert pyproject["project"]["requires-python"] == current
+    assert pyproject["tool"] == expected_tool
+    assert pyproject["project"]["dependencies"] == ["numpy>=2.0.0"]
+
+
+@pytest.mark.parametrize("filename", ["pyproject", "pyproject_pixi"])
+@pytest.mark.parametrize("exclude_all", [False, True])
+def test_empty_and_all_exclusions(patch_datetime_now, schedule, filename, exclude_all):
+    pyproject = read_toml(f"tests/test_data/{filename}.toml")
+    expected = deepcopy(pyproject)
+    if not exclude_all:
+        update_pyproject_toml(expected, schedule)
+    excluded_packages = (
+        [pkg for entry in schedule for pkg in entry["packages"]] if exclude_all else ()
+    )
+
+    with _mock_pypi() as mock_pypi:
+        update_pyproject_toml(
+            pyproject, schedule, 2.0, excluded_packages=excluded_packages
+        )
+
+    mock_pypi.assert_not_called()
+    assert dumps(pyproject) == dumps(expected)
+
+
+@pytest.mark.parametrize(
+    "invalid", ["numpy>=1", "numpy[extra]", "numpy*", "*", "-numpy", "numpy pandas"]
+)
+def test_invalid_exclusions_fail_before_mutation(patch_datetime_now, schedule, invalid):
+    pyproject = _minimal_pyproject("numpy>=1.10.0")
+    expected = deepcopy(pyproject)
+
+    with _mock_pypi() as mock_pypi, pytest.raises(ValueError):
+        update_pyproject_toml(
+            pyproject, schedule, 2.0, excluded_packages=["pandas", invalid]
+        )
+
+    mock_pypi.assert_not_called()
+    assert pyproject == expected
+
+
+def test_exclusions_do_not_hide_invalid_schedule(patch_datetime_now):
+    pyproject = _minimal_pyproject("numpy>=1.10.0")
+    with pytest.raises(RuntimeError, match="Could not find schedule"):
+        update_pyproject_toml(pyproject, [], excluded_packages=["numpy", "python"])

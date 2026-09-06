@@ -182,7 +182,10 @@ def update_pyproject_toml(
     pyproject_data: dict,
     schedule_data: Sequence[SupportSchedule],
     update_all: float | None = None,
+    *,
+    excluded_packages: Sequence[str] = (),
 ):
+    excluded = {canonicalize_name(pkg, validate=True) for pkg in excluded_packages}
     now = datetime.datetime.now(datetime.UTC)
     applicable = sorted(
         filter(
@@ -200,6 +203,9 @@ def update_pyproject_toml(
         raise RuntimeError(
             "Could not find schedule that applies to current time, perhaps your schedule is outdated."
         )
+    new_version = {
+        pkg: version for pkg, version in new_version.items() if pkg not in excluded
+    }
     project_data = pyproject_data.get("project", {})
     if not isinstance(project_data, dict):
         project_data = {}
@@ -212,6 +218,8 @@ def update_pyproject_toml(
         _update_requires_python(project_data, new_version["python"])
 
     def resolve_lower_bound(package_key: str) -> Version | None:
+        if package_key in excluded:
+            return None
         if package_key in new_version:
             return new_version[package_key]
         if update_all is not None:
