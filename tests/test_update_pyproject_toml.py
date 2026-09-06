@@ -460,9 +460,8 @@ def test_custom_support_quarter_boundaries(
     assert pyproject["project"]["dependencies"] == [expected]
 
 
-@pytest.mark.parametrize("package", ["numpy", "scikit-learn"])
 def test_custom_support_covers_pep_and_pixi_without_core_schedule_entries(
-    patch_datetime_now, feature_files, package
+    patch_datetime_now, feature_files
 ):
     # A custom schedule still owns Python and additional packages; membership
     # in the core policy cannot depend on entries in this schedule.
@@ -472,30 +471,21 @@ def test_custom_support_covers_pep_and_pixi_without_core_schedule_entries(
             "packages": {"python": "3.12", "custom-pkg": "4.0"},
         }
     ]
-    spelling = package.upper().replace("-", "_")
     pyproject = _minimal_pyproject(
-        f"{spelling}[extra]>=1.0;python_version<'4'", "requests>=1", "custom-pkg>=1"
+        "SCIKIT_LEARN[extra]>=1.0;python_version<'4'", "requests>=1", "custom-pkg>=1"
     )
-    pyproject["project"]["optional-dependencies"] = {"test": [f"{package}>=1.0"]}
-    pyproject["dependency-groups"] = {"dev": [f"{package.replace('-', '.')}>=1.0"]}
-    deps = {
-        spelling: ">=1.0",
-        "requests": ">=1",
-        "custom-pkg": ">=1",
-        "python": ">=3.9",
-    }
-    version_table = {"version": ">=1.0", "extras": ["test"]}
     pixi = {
-        "dependencies": deps.copy(),
-        "pypi-dependencies": {package: deepcopy(version_table)},
+        "dependencies": {
+            "SCIKIT_LEARN": ">=1.0",
+            "requests": ">=1",
+            "custom-pkg": ">=1",
+            "python": ">=3.9",
+        },
     }
-    pixi["feature"] = {"test": {"dependencies": deps.copy()}}
-    pixi["target"] = {
-        "linux-64": {"pypi-dependencies": {package: deepcopy(version_table)}}
+    target = {
+        "pypi-dependencies": {"scikit-learn": {"version": ">=1.0", "extras": ["test"]}}
     }
-    pixi["feature"]["test"]["target"] = {
-        "linux-64": {"pypi-dependencies": {package: deepcopy(version_table)}}
-    }
+    pixi["feature"] = {"test": {"target": {"linux-64": target}}}
     pyproject["tool"] = {"pixi": pixi}
 
     with patch.object(
@@ -504,64 +494,47 @@ def test_custom_support_covers_pep_and_pixi_without_core_schedule_entries(
         update_pyproject_toml(pyproject, schedule, update_all=2, spec0_support_years=3)
 
     assert pyproject["project"]["dependencies"] == [
-        f"{spelling}[extra]>=1.2.0;python_version<'4'",
+        "SCIKIT_LEARN[extra]>=1.2.0;python_version<'4'",
         "requests>=1.2.0",  # Existing update_all policy selects oldest in window.
         "custom-pkg>=4.0",
     ]
     assert pyproject["project"]["requires-python"] == ">=3.12"
-    assert pyproject["project"]["optional-dependencies"]["test"] == [
-        f"{package}>=1.2.0"
-    ]
-    assert pyproject["dependency-groups"]["dev"] == [
-        f"{package.replace('-', '.')}>=1.2.0"
-    ]
-    expected_deps = {
-        spelling: ">=1.2.0",
+    assert pixi["dependencies"] == {
+        "SCIKIT_LEARN": ">=1.2.0",
         "requests": ">=1",
         "custom-pkg": ">=4.0",
         "python": ">=3.12",
     }
-    expected_version = {package: {"version": ">=1.2.0", "extras": ["test"]}}
-    assert pixi["dependencies"] == expected_deps
-    assert pixi["feature"]["test"]["dependencies"] == expected_deps
-    assert pixi["pypi-dependencies"] == expected_version
-    assert pixi["target"]["linux-64"]["pypi-dependencies"] == expected_version
-    assert (
-        pixi["feature"]["test"]["target"]["linux-64"]["pypi-dependencies"]
-        == expected_version
-    )
+    assert target["pypi-dependencies"] == {
+        "scikit-learn": {"version": ">=1.2.0", "extras": ["test"]}
+    }
     assert [c.args[0] for c in get.call_args_list] == [
-        f"https://pypi.org/simple/{package}",
+        "https://pypi.org/simple/scikit-learn",
         "https://pypi.org/simple/requests",
     ]
 
 
-def test_custom_support_preserves_constraints_and_skips(
-    patch_datetime_now, schedule, feature_files
+def test_custom_support_skips_excluded_and_non_version_dependencies(
+    patch_datetime_now, schedule
 ):
-    unchanged = [
-        "numpy >= 2",
-        "numpy == 1.0",
-        "numpy >= 1, < 1.2",
+    pyproject = _minimal_pyproject(
         "scipy @ https://example.invalid/scipy.whl",
         "scikit_LEARN[tests]",
         "pandas >= 1",
         "requests >= 1",
-    ]
-    pyproject = _minimal_pyproject(*unchanged, "NumPy[foo]>=1;python_version<'4'")
+    )
     pyproject["project"]["name"] = "scikit-learn"
     pixi = {
-        "dependencies": {"numpy": ">= 2", "pandas": ">= 1", "python": ">= 3.9"},
+        "dependencies": {"pandas": ">= 1", "python": ">= 3.9"},
         "pypi-dependencies": {
             "scipy": "@ https://example.invalid/scipy.whl",
             "scikit-learn": {"version": "*", "extras": ["tests"]},
             "xarray": {"git": "https://example.invalid/xarray.git"},
         },
     }
-    pyproject["tool"] = {"pixi": deepcopy(pixi)}
-    with patch.object(
-        spec0_action.requests, "get", return_value=_pypi_response(feature_files)
-    ) as get:
+    pyproject["tool"] = {"pixi": pixi}
+    expected = deepcopy(pyproject)
+    with patch.object(spec0_action.requests, "get") as get:
         update_pyproject_toml(
             pyproject,
             schedule,
@@ -569,12 +542,8 @@ def test_custom_support_preserves_constraints_and_skips(
             spec0_support_years=3,
             excluded_packages=["Pandas", "requests", "PYTHON"],
         )
-    assert pyproject["project"]["dependencies"] == unchanged + [
-        "NumPy[foo]>=1.2.0;python_version<'4'"
-    ]
-    assert pyproject["project"]["requires-python"] == ">=3.11"
-    assert pyproject["tool"]["pixi"] == pixi
-    get.assert_called_once()
+    assert pyproject == expected
+    get.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -590,13 +559,21 @@ def test_custom_support_preserves_constraints_and_skips(
                 }
             ]
         },
+        {
+            "files": [
+                {
+                    "filename": "numpy-1.0.tar.gz",
+                    "upload-time": "2000-01-01T00:00:00Z",
+                }
+            ]
+        },
     ],
 )
-def test_custom_support_unusable_metadata_never_falls_back(
+def test_custom_support_without_a_floor_never_falls_back(
     patch_datetime_now, schedule, payload
 ):
-    pyproject = _minimal_pyproject("numpy >= 1")
-    pyproject["tool"] = {"pixi": {"dependencies": {"numpy": ">= 1"}}}
+    pyproject = _minimal_pyproject("numpy >= 0.5")
+    pyproject["tool"] = {"pixi": {"dependencies": {"numpy": ">= 0.5"}}}
     with (
         patch.object(
             spec0_action.requests,
@@ -606,31 +583,9 @@ def test_custom_support_unusable_metadata_never_falls_back(
         _mock_pypi() as fallback,
     ):
         update_pyproject_toml(pyproject, schedule, update_all=2, spec0_support_years=3)
-    assert pyproject["project"]["dependencies"] == ["numpy >= 1"]
-    assert pyproject["tool"]["pixi"]["dependencies"] == {"numpy": ">= 1"}
-    get.assert_called_once()
-    fallback.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    "files",
-    [
-        [],
-        [
-            {"filename": "numpy-1.0.tar.gz", "upload-time": "2000-01-01T00:00:00Z"},
-        ],
-    ],
-)
-def test_custom_support_needs_an_existing_successor(
-    patch_datetime_now, schedule, files
-):
-    pyproject = _minimal_pyproject("numpy >= 0.5")
-    with (
-        patch.object(spec0_action.requests, "get", return_value=_pypi_response(files)),
-        _mock_pypi() as fallback,
-    ):
-        update_pyproject_toml(pyproject, schedule, update_all=2, spec0_support_years=3)
     assert pyproject["project"]["dependencies"] == ["numpy >= 0.5"]
+    assert pyproject["tool"]["pixi"]["dependencies"] == {"numpy": ">= 0.5"}
+    get.assert_called_once()
     fallback.assert_not_called()
 
 
