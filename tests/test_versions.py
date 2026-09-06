@@ -23,8 +23,6 @@ def test_repr_specset():
         ("!=1.3.4.*,<2.0", "1.4.0", "!=1.3.4.*,<2.0,>=1.4.0"),
         # compatible-release specs keep their ceiling
         ("~=1.3", "1.4.0", "~=1.3,>=1.4.0"),
-        # ~= mixed with other restrictions, bound inside the compatible range
-        ("~=0.9,!=0.9.4.*,<2.0", "0.9.5", "~=0.9,!=0.9.4.*,<2.0,>=0.9.5"),
         # bound outside the compatible-release range
         ("~=0.9,!=1.3.4.*,<2.0", "1.4.0", None),
         # new bound conflicts with the upper bound

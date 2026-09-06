@@ -58,9 +58,7 @@ SPEC 0 packages include `ipython`, `matplotlib`, `networkx`, `numpy`, `pandas`, 
 
 ### Excluding packages
 
-If you want to exclude a package for example, you want to keep compatibility with NumPy 1.26 while updating the other dependencies, add `excluded_packages: "numpy"` to the action's `with` settings before its lower bound is raised.
-
-Separate names with commas or whitespace, including multiline YAML:
+To keep a package's lower bound as-is, for example to stay compatible with NumPy 1.26 while everything else updates, list it in `excluded_packages` before the action raises its bound (bounds are never lowered). Separate names with commas or whitespace; `python` excludes the Python requirement:
 
 ```yaml
 with:
@@ -70,17 +68,7 @@ with:
     python
 ```
 
-Matching ignores case and treats dots, underscores, and hyphens as equivalent: `Scikit.Learn` matches `scikit-learn`.
-Use bare package names; requirements such as `numpy>=1.26`, extras such as `numpy[extra]`, and wildcards are rejected.
-
-Exclusions take precedence over both the supplied schedule (including custom schedules) and `update_all`.
-Excluding `python` also preserves `project.requires-python` and Pixi Python constraints; a missing `requires-python` stays absent.
-
-The CLI accepts the same syntax:
-
-```bash
-python run_spec0_update.py pyproject.toml schedule.json --excluded-packages "numpy, python"
-```
+Exclusions win over the schedule and `update_all`. The CLI takes the same value via `--excluded-packages`.
 
 ## Limitations
 

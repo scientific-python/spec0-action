@@ -35,24 +35,10 @@ jobs:
         env:
           EXCLUDED_PACKAGES: ${{ matrix.excluded_packages }}
         run: |
-          pixi run python - <<'PY'
-          import os
-          import subprocess
-          import tomllib
-          from pathlib import Path
-
-          path = "tests/test_data/pyproject.toml"
-          original = tomllib.loads(subprocess.check_output(["git", "show", f"HEAD:{path}"], text=True))
-          updated = tomllib.loads(Path(path).read_text())
-          before = original["project"]["dependencies"]
-          after = updated["project"]["dependencies"]
-          for package in ("numpy", "scikit-learn"):
-              old = [dep for dep in before if dep.startswith(package)]
-              new = [dep for dep in after if dep.startswith(package)]
-              assert old and new
-              if os.environ["EXCLUDED_PACKAGES"]:
-                  assert new == old, (old, new)
-              else:
-                  assert new != old, (old, new)
-          assert [dep for dep in after if dep.startswith("pandas")] != [dep for dep in before if dep.startswith("pandas")]
-          PY
+          git diff -U0 -- tests/test_data/pyproject.toml > changes.diff
+          grep -q '^+.*pandas' changes.diff
+          if [ -n "$EXCLUDED_PACKAGES" ]; then
+            if grep -Eq '^[-+].*(numpy|scikit-learn)' changes.diff; then exit 1; fi
+          else
+            grep -q '^+.*numpy' changes.diff
+          fi

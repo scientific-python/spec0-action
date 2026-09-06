@@ -54,13 +54,13 @@ def write_toml(path: Path | str, data: dict):
 
 
 def read_toml(path: Path | str) -> dict:
-    with open(path, "r") as file:
+    with open(path) as file:
         contents = file.read()
         return loads(contents)
 
 
 def read_schedule(path: Path | str) -> Sequence[SupportSchedule]:
-    with open(path, "r") as file:
+    with open(path) as file:
         return json.load(file)
 
 

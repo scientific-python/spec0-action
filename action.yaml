@@ -79,14 +79,11 @@ runs:
           SCHEDULE_PATH="${GITHUB_WORKSPACE}/schedule.json"
         fi
         echo "Updating ${PROJECT_FILE_NAME} using schedule ${SCHEDULE_PATH}"
-        UPDATE_ARGS=()
+        UPDATE_ALL_ARGS=()
         if [ -n "$UPDATE_ALL" ]; then
-          UPDATE_ARGS+=(--update-all "$UPDATE_ALL")
+          UPDATE_ALL_ARGS=(--update-all "$UPDATE_ALL")
         fi
-        if [ -n "$EXCLUDED_PACKAGES" ]; then
-          UPDATE_ARGS+=(--excluded-packages "$EXCLUDED_PACKAGES")
-        fi
-        pixi run --manifest-path "${GITHUB_ACTION_PATH}/pyproject.toml" update-dependencies "${GITHUB_WORKSPACE}/${PROJECT_FILE_NAME}" "$SCHEDULE_PATH" "${UPDATE_ARGS[@]}"
+        pixi run --manifest-path "${GITHUB_ACTION_PATH}/pyproject.toml" update-dependencies "${GITHUB_WORKSPACE}/${PROJECT_FILE_NAME}" "$SCHEDULE_PATH" --excluded-packages "$EXCLUDED_PACKAGES" "${UPDATE_ALL_ARGS[@]}"
     - name: Changes
       id: changes
       shell: bash

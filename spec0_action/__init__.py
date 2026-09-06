@@ -84,7 +84,7 @@ def _version_from_filename(filename: str) -> Version | None:
 def update_pyproject_dependencies(
     dependencies: list,
     resolve_lower_bound: Callable[[str], Version | None],
-    own_name: str | None,
+    skip: set[str],
 ):
     # Assign by index so the (tomlkit) list is updated in place
     for i, dep_str in enumerate(dependencies):
@@ -92,7 +92,7 @@ def update_pyproject_dependencies(
             continue
         pkg, extras, spec, env = parse_pep_dependency(dep_str)
         package_key = canonicalize_name(pkg)
-        if isinstance(spec, Url) or package_key == own_name:
+        if isinstance(spec, Url) or package_key in skip:
             continue
         new_lower_bound = resolve_lower_bound(package_key)
         if new_lower_bound is None:
@@ -118,11 +118,11 @@ def iter_pep_dependency_lists(pyproject_data: dict):
 
 
 def update_dependency_table(
-    dep_table: dict, new_versions: dict[str, Version], own_name: str | None
+    dep_table: dict, new_versions: dict[str, Version], skip: set[str]
 ):
     for pkg, pkg_data in dep_table.items():
         package_key = canonicalize_name(pkg)
-        if package_key == own_name or package_key not in new_versions:
+        if package_key in skip or package_key not in new_versions:
             continue
         # Like pkg = ">x.y.z,<a"
         if isinstance(pkg_data, str):
@@ -146,12 +146,12 @@ def update_dependency_table(
 
 
 def update_pixi_dependencies(
-    pixi_tables: dict, new_versions: dict[str, Version], own_name: str | None
+    pixi_tables: dict, new_versions: dict[str, Version], skip: set[str]
 ):
     for key in ("dependencies", "pypi-dependencies"):
         dep_table = pixi_tables.get(key)
         if isinstance(dep_table, dict):
-            update_dependency_table(dep_table, new_versions, own_name)
+            update_dependency_table(dep_table, new_versions, skip)
 
     # Recurse into [tool.pixi.feature.X] and platform tables like
     # [tool.pixi.target.linux-64], which hold the same dependency keys
@@ -160,7 +160,7 @@ def update_pixi_dependencies(
         if isinstance(subtables, dict):
             for subtable in subtables.values():
                 if isinstance(subtable, dict):
-                    update_pixi_dependencies(subtable, new_versions, own_name)
+                    update_pixi_dependencies(subtable, new_versions, skip)
 
 
 def _update_requires_python(project_data: dict, new_lower_bound: Version):
@@ -186,7 +186,6 @@ def update_pyproject_toml(
     *,
     excluded_packages: Sequence[str] = (),
 ):
-    excluded = {canonicalize_name(pkg, validate=True) for pkg in excluded_packages}
     now = datetime.datetime.now(datetime.UTC)
     applicable = sorted(
         filter(
@@ -204,23 +203,19 @@ def update_pyproject_toml(
         raise RuntimeError(
             "Could not find schedule that applies to current time, perhaps your schedule is outdated."
         )
-    new_version = {
-        pkg: version for pkg, version in new_version.items() if pkg not in excluded
-    }
     project_data = pyproject_data.get("project", {})
     if not isinstance(project_data, dict):
         project_data = {}
-    # Self-references like "pkg[extras]" are used to share extras between
-    # dependency groups, their version is always the local one so never pin it.
-    own_name = project_data.get("name")
-    own_name = canonicalize_name(own_name) if isinstance(own_name, str) else None
-
-    if "python" in new_version:
+    # Never touch excluded packages, nor self-references like "pkg[extras]" used
+    # to share extras between dependency groups (their version is always the local one).
+    skip = {canonicalize_name(pkg, validate=True) for pkg in excluded_packages}
+    if "python" in new_version and "python" not in skip:
         _update_requires_python(project_data, new_version["python"])
 
+    if isinstance(own_name := project_data.get("name"), str):
+        skip.add(canonicalize_name(own_name))
+
     def resolve_lower_bound(package_key: str) -> Version | None:
-        if package_key in excluded:
-            return None
         if package_key in new_version:
             return new_version[package_key]
         if update_all is not None:
@@ -228,7 +223,7 @@ def update_pyproject_toml(
         return None
 
     for dependencies in iter_pep_dependency_lists(pyproject_data):
-        update_pyproject_dependencies(dependencies, resolve_lower_bound, own_name)
+        update_pyproject_dependencies(dependencies, resolve_lower_bound, skip)
 
     if "tool" in pyproject_data and "pixi" in pyproject_data["tool"]:
-        update_pixi_dependencies(pyproject_data["tool"]["pixi"], new_version, own_name)
+        update_pixi_dependencies(pyproject_data["tool"]["pixi"], new_version, skip)

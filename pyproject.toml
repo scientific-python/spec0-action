@@ -29,3 +29,7 @@ pytest = "*"
 
 [tool.pixi.environments]
 test = ["test"]
+
+[tool.ruff.lint]
+# Naive datetimes are fine: PyPI upload times are UTC and the schedule is quarter-granular
+ignore = ["DTZ"]

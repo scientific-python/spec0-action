@@ -1,5 +1,4 @@
-import json
-import subprocess
+import runpy
 import sys
 from pathlib import Path
 
@@ -7,56 +6,52 @@ import pytest
 
 from spec0_action import read_toml
 
+SCRIPT = Path(__file__).resolve().parents[1] / "run_spec0_update.py"
+SCHEDULE = '[{"start_date": "2000-01-01T00:00:00Z", "packages": {"numpy": "2.0", "python": "3.12", "scikit-learn": "1.4", "pandas": "2.2"}}]'
+PROJECT = '[project]\nrequires-python = ">= 3.9"\ndependencies = ["numpy >= 1.26", "scikit-learn >= 1.0", "pandas>=1.0"]\n'
+
 
 @pytest.mark.parametrize(
-    "excluded_packages",
-    ["numpy, PYTHON\nscikit-learn", "numpy>=1"],
+    ("excluded", "requires_python", "dependencies"),
+    [
+        ("", ">=3.12", ["numpy>=2.0", "scikit-learn>=1.4", "pandas>=2.2"]),
+        (
+            "numpy, PYTHON\nscikit-learn",
+            ">= 3.9",
+            ["numpy >= 1.26", "scikit-learn >= 1.0", "pandas>=2.2"],
+        ),
+    ],
 )
-def test_cli_excluded_packages(tmp_path, excluded_packages):
-    project_path = tmp_path / "pyproject.toml"
-    original = """[project]
-requires-python = ">= 3.9"
-dependencies = ["numpy >= 1.26", "scikit-learn >= 1.0", "pandas>=1.0"]
-"""
-    project_path.write_text(original)
-    schedule_path = tmp_path / "schedule.json"
-    schedule_path.write_text(
-        json.dumps(
-            [
-                {
-                    "start_date": "2000-01-01T00:00:00Z",
-                    "packages": {
-                        "numpy": "2.0",
-                        "python": "3.12",
-                        "scikit-learn": "1.4",
-                        "pandas": "2.2",
-                    },
-                }
-            ]
-        )
+def test_cli_excluded_packages(
+    tmp_path, monkeypatch, excluded, requires_python, dependencies
+):
+    project = tmp_path / "pyproject.toml"
+    project.write_text(PROJECT)
+    schedule = tmp_path / "schedule.json"
+    schedule.write_text(SCHEDULE)
+    argv = [str(SCRIPT), str(project), str(schedule), "--excluded-packages", excluded]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    runpy.run_path(str(SCRIPT), run_name="__main__")
+
+    assert read_toml(project)["project"] == {
+        "requires-python": requires_python,
+        "dependencies": dependencies,
+    }
+
+
+def test_cli_invalid_exclusion_preserves_file(tmp_path, monkeypatch):
+    project = tmp_path / "pyproject.toml"
+    project.write_text(PROJECT)
+    schedule = tmp_path / "schedule.json"
+    schedule.write_text(SCHEDULE)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [str(SCRIPT), str(project), str(schedule), "--excluded-packages", "numpy>=1"],
     )
 
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(Path(__file__).resolve().parents[1] / "run_spec0_update.py"),
-            str(project_path),
-            str(schedule_path),
-            "--excluded-packages",
-            excluded_packages,
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    with pytest.raises(ValueError, match="invalid"):
+        runpy.run_path(str(SCRIPT), run_name="__main__")
 
-    if excluded_packages.startswith("numpy,"):
-        assert result.returncode == 0, result.stderr
-        assert read_toml(project_path)["project"] == {
-            "requires-python": ">= 3.9",
-            "dependencies": ["numpy >= 1.26", "scikit-learn >= 1.0", "pandas>=2.2"],
-        }
-    else:
-        assert result.returncode != 0
-        assert "name is invalid" in result.stderr
-        assert project_path.read_text() == original
+    assert project.read_bytes() == PROJECT.encode()
