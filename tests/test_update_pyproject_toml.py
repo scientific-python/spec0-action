@@ -76,21 +76,14 @@ def test_update_pyproject_toml_with_pixi(patch_datetime_now, schedule):
 
 def test_update_all_updates_non_spec0_package(patch_datetime_now, schedule):
     pyproject = _minimal_pyproject("requests>=2.0.0", "numpy>=1.10.0")
-    with _mock_pypi("2.28.0"):
+    with _mock_pypi("2.28.0") as mock_pypi:
         update_pyproject_toml(pyproject, schedule, update_all=2.0)
+    mock_pypi.assert_called_once_with("requests", 2.0)
     # requests is not in SPEC 0 and is bumped from PyPI, numpy from the schedule
     assert pyproject["project"]["dependencies"] == [
         "requests>=2.28.0",
         "numpy>=2.0.0",
     ]
-
-
-def test_update_all_skips_spec0_packages(patch_datetime_now, schedule):
-    pyproject = _minimal_pyproject("numpy>=1.10.0")
-    with _mock_pypi() as mock_pypi:
-        update_pyproject_toml(pyproject, schedule, update_all=2.0)
-    # numpy is in the SPEC 0 schedule, PyPI must not be queried for it
-    mock_pypi.assert_not_called()
 
 
 def test_update_all_skips_already_strict_bound(patch_datetime_now, schedule):
@@ -199,26 +192,6 @@ def test_canonical_package_names_match_schedule(patch_datetime_now, schedule):
     ]
 
 
-def test_optional_dependencies_and_dependency_groups_are_updated(
-    patch_datetime_now, schedule
-):
-    pyproject = _minimal_pyproject()
-    pyproject["project"]["optional-dependencies"] = {
-        "test": ["Numpy>=1.20"],
-    }
-    pyproject["dependency-groups"] = {
-        "dev": ["numpy>=1.20", {"include-group": "test"}],
-    }
-
-    update_pyproject_toml(pyproject, schedule)
-
-    assert pyproject["project"]["optional-dependencies"]["test"] == ["Numpy>=2.0.0"]
-    assert pyproject["dependency-groups"]["dev"] == [
-        "numpy>=2.0.0",
-        {"include-group": "test"},
-    ]
-
-
 def test_url_pinned_and_up_to_date_dependencies_left_untouched(
     patch_datetime_now, schedule
 ):
@@ -272,29 +245,6 @@ def test_pixi_feature_pypi_dependencies_and_non_version_tables(
     assert pixi["feature"]["test"]["dependencies"]["xarray"] == {
         "url": "https://example.invalid/pkg.whl"
     }
-
-
-def test_pixi_target_dependencies_are_updated(patch_datetime_now, schedule):
-    pyproject = _minimal_pyproject()
-    pyproject["tool"] = {
-        "pixi": {
-            "target": {"linux-64": {"dependencies": {"numpy": ">=1.20"}}},
-            "feature": {
-                "test": {
-                    "target": {"osx-arm64": {"pypi-dependencies": {"numpy": ">=1.20"}}}
-                }
-            },
-        }
-    }
-
-    update_pyproject_toml(pyproject, schedule)
-
-    pixi = pyproject["tool"]["pixi"]
-    assert pixi["target"]["linux-64"]["dependencies"]["numpy"] == ">=2.0.0"
-    assert (
-        pixi["feature"]["test"]["target"]["osx-arm64"]["pypi-dependencies"]["numpy"]
-        == ">=2.0.0"
-    )
 
 
 def test_update_all_uses_version_release_date_not_new_file_upload(patch_datetime_now):

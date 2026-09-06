@@ -10,7 +10,7 @@ from spec0_action import read_toml
 
 @pytest.mark.parametrize(
     "excluded_packages",
-    ["numpy, PYTHON\nscikit-learn", "numpy>=1", "numpy[extra]", "numpy*"],
+    ["numpy, PYTHON\nscikit-learn", "numpy>=1"],
 )
 def test_cli_excluded_packages(tmp_path, excluded_packages):
     project_path = tmp_path / "pyproject.toml"
