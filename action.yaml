@@ -38,6 +38,10 @@ inputs:
     description: "If set, also update all non-SPEC0 dependencies to versions released within the last N years (e.g., 2)."
     required: false
     default: ""
+  excluded_packages:
+    description: "Comma- or whitespace-separated package names to leave unchanged, including with update_all. Use python to exclude Python requirements."
+    required: false
+    default: ""
 runs:
   using: "composite"
   steps:
@@ -66,6 +70,7 @@ runs:
         PROJECT_FILE_NAME: ${{ inputs.project_file_name }}
         SCHEDULE_INPUT: ${{ inputs.schedule_path }}
         UPDATE_ALL: ${{ inputs.update_all }}
+        EXCLUDED_PACKAGES: ${{ inputs.excluded_packages }}
       run: |
         set -e
         if [ -n "$SCHEDULE_INPUT" ]; then
@@ -78,7 +83,7 @@ runs:
         if [ -n "$UPDATE_ALL" ]; then
           UPDATE_ALL_ARGS=(--update-all "$UPDATE_ALL")
         fi
-        pixi run --manifest-path "${GITHUB_ACTION_PATH}/pyproject.toml" update-dependencies "${GITHUB_WORKSPACE}/${PROJECT_FILE_NAME}" "$SCHEDULE_PATH" "${UPDATE_ALL_ARGS[@]}"
+        pixi run --manifest-path "${GITHUB_ACTION_PATH}/pyproject.toml" update-dependencies "${GITHUB_WORKSPACE}/${PROJECT_FILE_NAME}" "$SCHEDULE_PATH" --excluded-packages "$EXCLUDED_PACKAGES" "${UPDATE_ALL_ARGS[@]}"
     - name: Changes
       id: changes
       shell: bash

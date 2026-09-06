@@ -1,5 +1,5 @@
-from packaging.version import Version
 from packaging.specifiers import Specifier, SpecifierSet
+from packaging.version import Version
 
 
 def tighten_lower_bound(

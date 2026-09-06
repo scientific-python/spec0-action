@@ -1,11 +1,10 @@
-import requests
-import json
 import collections
+import json
 from datetime import datetime, timedelta
 
 import pandas as pd
-from packaging.version import Version, InvalidVersion
-
+import requests
+from packaging.version import InvalidVersion, Version
 
 PY_RELEASES = {
     "3.8": "Oct 14, 2019",
@@ -28,14 +27,14 @@ CORE_PACKAGES = [
     "xarray",
     "zarr",
 ]
-PLUS_36_MONTHS = timedelta(days=int(365 * 3))
-PLUS_24_MONTHS = timedelta(days=int(365 * 2))
+PLUS_36_MONTHS = timedelta(days=365 * 3)
+PLUS_24_MONTHS = timedelta(days=365 * 2)
 
 # Release data
 # We put the cutoff at 3 quarters ago - we do not use "just" -9 months
 # to avoid the content of the quarter to change depending on when we
 # generate this file during the current quarter.
-CURRENT_DATE = pd.Timestamp.now()
+CURRENT_DATE = pd.Timestamp.now(tz="UTC").tz_localize(None)
 CURRENT_QUARTER_START = pd.Timestamp(
     CURRENT_DATE.year, (CURRENT_DATE.quarter - 1) * 3 + 1, 1
 )
@@ -71,8 +70,8 @@ def get_release_dates(package, support_time=PLUS_24_MONTHS):
         if not release_date:
             continue
         file_date[version].append(release_date)
-    release_date = {v: min(file_date[v]) for v in file_date}
-    for ver, release_date in sorted(release_date.items()):
+    release_dates = {v: min(file_date[v]) for v in file_date}
+    for ver, release_date in sorted(release_dates.items()):
         drop_date = release_date + support_time
         if drop_date >= CUTOFF:
             releases[ver] = {
@@ -113,10 +112,10 @@ title Support Window"""
     )
     for name, releases in package_releases.items():
         fh.write(f"\n\nsection {name}")
-        for version, dates in releases.items():
-            fh.write(
-                f"\n{version} : {dates['release_date'].strftime('%Y-%m-%d')},{dates['drop_date'].strftime('%Y-%m-%d')}"
-            )
+        fh.writelines(
+            f"\n{version} : {dates['release_date'].strftime('%Y-%m-%d')},{dates['drop_date'].strftime('%Y-%m-%d')}"
+            for version, dates in releases.items()
+        )
     fh.write("\n")
 
 # Print drop schedule
@@ -208,7 +207,7 @@ with open("schedule.md", "w") as fh:
     # as we might have filtered some of the packages out depending on
     # when we ran the script.
     tb = []
-    for quarter in list(sorted(set(dq.index.get_level_values(0))))[1:]:
+    for quarter in sorted(set(dq.index.get_level_values(0)))[1:]:
         tb.append(make_quarter(quarter, dq))
     fh.write("\n\n".join(tb))
     fh.write("\n")

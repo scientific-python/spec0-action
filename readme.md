@@ -50,10 +50,25 @@ The built-in `GITHUB_TOKEN` is used by default as long as the workflow has `pull
 | `pr_title`          | no       | `chore: Drop support for unsupported packages conform SPEC 0` | Title of the opened PR                                                                                           |
 | `commit_msg`        | no       | `chore: Drop support for unsupported packages conform SPEC 0` | Commit message for the version update commit                                                                     |
 | `update_all`        | no       | —                                                             | If set to a number N, also update non-SPEC0 dependencies to versions released within the last N years (e.g. `2`) |
+| `excluded_packages` | no       | —                                                             | Comma- or whitespace-separated package names to leave unchanged, including with `update_all`                     |
 
 For examples of before/after see [tests/test_data/pyproject.toml](./tests/test_data/pyproject.toml) and [tests/test_data/pyproject_updated.toml](./tests/test_data/pyproject_updated.toml).
 
 SPEC 0 packages include `ipython`, `matplotlib`, `networkx`, `numpy`, `pandas`, `scikit-image`, `scikit-learn`, `scipy`, `xarray`, and `zarr`.
+
+### Excluding packages
+
+To keep a package's lower bound as-is, for example to stay compatible with NumPy 1.26 while everything else updates, list it in `excluded_packages` before the action raises its bound (bounds are never lowered). Separate names with commas or whitespace; `python` excludes the Python requirement:
+
+```yaml
+with:
+  update_all: 2
+  excluded_packages: |
+    numpy, scikit-learn
+    python
+```
+
+Exclusions win over the schedule and `update_all`. The CLI takes the same value via `--excluded-packages`.
 
 ## Limitations
 
