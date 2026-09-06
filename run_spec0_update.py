@@ -22,7 +22,14 @@ if __name__ == "__main__":
         type=float,
         default=None,
         metavar="YEARS",
-        help="Also update all non-SPEC0 dependencies to versions released within the last YEARS years (e.g., 2).",
+        help="Update PEP dependencies without an applicable schedule floor or explicit core-package support period to versions first released within the last YEARS years (e.g., 2).",
+    )
+    parser.add_argument(
+        "--spec0-support-years",
+        type=float,
+        default=None,
+        metavar="YEARS",
+        help="Compute SPEC 0 core-package floors from PyPI using YEARS of support; Python still follows the supplied schedule.",
     )
     parser.add_argument(
         "--excluded-packages",
@@ -47,6 +54,7 @@ if __name__ == "__main__":
         project_data,
         schedule_data,
         update_all=args.update_all,
+        spec0_support_years=args.spec0_support_years,
         excluded_packages=args.excluded_packages.replace(",", " ").split(),
     )
     write_toml(toml_path, project_data)

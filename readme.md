@@ -40,17 +40,18 @@ The built-in `GITHUB_TOKEN` is used by default as long as the workflow has `pull
 
 ### Parameters
 
-| Input               | Required | Default                                                       | Description                                                                                                      |
-| ------------------- | -------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `token`             | no       | `GITHUB_TOKEN`                                                | Token with `pull-requests: write` permission to open PRs                                                         |
-| `project_file_name` | no       | `pyproject.toml`                                              | Path to the file to update, relative to repository root                                                          |
-| `schedule_path`     | no       | —                                                             | Path to a custom `schedule.json`, relative to repository root. Uses the latest release if unset                  |
-| `target_branch`     | no       | `main`                                                        | Branch to open the PR against                                                                                    |
-| `create_pr`         | no       | `true`                                                        | Set to `false` for a dry run                                                                                     |
-| `pr_title`          | no       | `chore: Drop support for unsupported packages conform SPEC 0` | Title of the opened PR                                                                                           |
-| `commit_msg`        | no       | `chore: Drop support for unsupported packages conform SPEC 0` | Commit message for the version update commit                                                                     |
-| `update_all`        | no       | —                                                             | If set to a number N, also update non-SPEC0 dependencies to versions released within the last N years (e.g. `2`) |
-| `excluded_packages` | no       | —                                                             | Comma- or whitespace-separated package names to leave unchanged, including with `update_all`                     |
+| Input                 | Required | Default                                                       | Description                                                                                                                                                      |
+| --------------------- | -------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `token`               | no       | `GITHUB_TOKEN`                                                | Token with `pull-requests: write` permission to open PRs                                                                                                         |
+| `project_file_name`   | no       | `pyproject.toml`                                              | Path to the file to update, relative to repository root                                                                                                          |
+| `schedule_path`       | no       | —                                                             | Path to a custom `schedule.json`, relative to repository root. Uses the latest release if unset                                                                  |
+| `target_branch`       | no       | `main`                                                        | Branch to open the PR against                                                                                                                                    |
+| `create_pr`           | no       | `true`                                                        | Set to `false` for a dry run                                                                                                                                     |
+| `pr_title`            | no       | `chore: Drop support for unsupported packages conform SPEC 0` | Title of the opened PR                                                                                                                                           |
+| `commit_msg`          | no       | `chore: Drop support for unsupported packages conform SPEC 0` | Commit message for the version update commit                                                                                                                     |
+| `update_all`          | no       | —                                                             | If set to N years, update PEP dependencies without a schedule floor or custom core-package policy to the oldest stable version first released within that window |
+| `spec0_support_years` | no       | —                                                             | Override the support period for SPEC 0 core packages using current PyPI release history (e.g. `3`); Python still follows the supplied schedule                   |
+| `excluded_packages`   | no       | —                                                             | Comma- or whitespace-separated package names to leave unchanged, including with `update_all`                                                                     |
 
 For examples of before/after see [tests/test_data/pyproject.toml](./tests/test_data/pyproject.toml) and [tests/test_data/pyproject_updated.toml](./tests/test_data/pyproject_updated.toml).
 
@@ -68,11 +69,27 @@ with:
     python
 ```
 
-Exclusions win over the schedule and `update_all`. The CLI takes the same value via `--excluded-packages`.
+Exclusions win over the schedule, `spec0_support_years`, and `update_all`, and excluded packages cause no PyPI lookup. The CLI takes the same value via `--excluded-packages`.
+
+### Changing the core-package support period
+
+The supplied schedule gives SPEC 0 packages two years of support. To use three years for those packages while updating other dependencies independently:
+
+```yaml
+with:
+  spec0_support_years: 3
+  update_all: 2
+```
+
+A year is 365 days. For each feature release (`X.Y.0`; pre-, post-, and patch releases are ignored), support ends at the start of the quarter containing its release date plus the period, and the floor moves to the next feature release. Floors come from the full PyPI release history, so any explicit value, even `2`, can differ from a published schedule snapshot. Python always follows the schedule.
+
+Precedence is `excluded_packages`, then `spec0_support_years` for SPEC 0 packages, then the schedule, then `update_all` for the remaining PEP dependencies (never Pixi tables). If PyPI cannot be reached, the affected dependency stays unchanged with a warning rather than falling back to the schedule or `update_all`. Bounds are never lowered, so configure the period before a bound is raised.
+
+The CLI takes `--spec0-support-years 3` and the Python API `spec0_support_years=3`.
 
 ## Limitations
 
-1. The action only tightens lower bounds and leaves upper bounds untouched. An update can produce an unsolvable environment — for example `numpy = ">=1.25.0,<2"` becomes `numpy = ">=2.0.0,<2"`. Keeping the environment solvable is out of scope; adjust upper bounds manually if needed.
+1. The action only tightens lower bounds and leaves upper bounds untouched. A proposed floor that conflicts with an existing constraint is skipped; for example, `numpy = ">=1.25.0,<2"` stays unchanged when the proposed floor is `2.0.0`. It does not solve the full dependency graph or guarantee a compatible environment.
 2. Only `pyproject.toml` is currently supported.
 
 ## Maintainer notes

@@ -6,6 +6,8 @@ import pandas as pd
 import requests
 from packaging.version import InvalidVersion, Version
 
+from spec0_action import CORE_PACKAGES
+
 PY_RELEASES = {
     "3.8": "Oct 14, 2019",
     "3.9": "Oct 5, 2020",
@@ -15,18 +17,6 @@ PY_RELEASES = {
     "3.13": "Oct 7, 2024",
     "3.14": "Oct 7, 2025",
 }
-CORE_PACKAGES = [
-    "ipython",
-    "matplotlib",
-    "networkx",
-    "numpy",
-    "pandas",
-    "scikit-image",
-    "scikit-learn",
-    "scipy",
-    "xarray",
-    "zarr",
-]
 PLUS_36_MONTHS = timedelta(days=365 * 3)
 PLUS_24_MONTHS = timedelta(days=365 * 2)
 

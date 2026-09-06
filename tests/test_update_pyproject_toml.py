@@ -30,7 +30,7 @@ def schedule():
 
 @pytest.fixture(autouse=True)
 def clear_pypi_cache():
-    spec0_action._get_oldest_version_in_window.cache_clear()
+    spec0_action._get_release_dates.cache_clear()
 
 
 def _minimal_pyproject(*deps):
@@ -54,7 +54,9 @@ def _pypi_response(files):
 @pytest.mark.parametrize("name", ["pyproject", "pyproject_pixi"])
 def test_update_pyproject_toml(patch_datetime_now, schedule, name):
     pyproject = read_toml(f"tests/test_data/{name}.toml")
-    update_pyproject_toml(pyproject, schedule)
+    with patch.object(spec0_action.requests, "get") as get:
+        update_pyproject_toml(pyproject, schedule)
+    get.assert_not_called()
     assert pyproject == read_toml(f"tests/test_data/{name}_updated.toml")
 
 
@@ -229,16 +231,25 @@ def test_update_all_uses_version_release_date_not_new_file_upload(patch_datetime
         ),
     ],
 )
+@pytest.mark.parametrize("spec0_support_years", [None, 3])
 def test_update_all_preserves_dependency_on_pypi_failure(
-    patch_datetime_now, schedule, stage, error
+    patch_datetime_now, schedule, stage, error, spec0_support_years, caplog
 ):
-    pyproject = _minimal_pyproject("requests >= 2.0")
+    package = "numpy" if spec0_support_years else "requests"
+    dependency = f"{package} >= 1.0"
+    pyproject = _minimal_pyproject(dependency)
+    pyproject["tool"] = {"pixi": {"dependencies": {package: ">= 1.0"}}}
     with patch.object(spec0_action.requests, "get") as get:
         operation = get if stage == "get" else getattr(get.return_value, stage)
         operation.side_effect = error
-        update_pyproject_toml(pyproject, schedule, update_all=2.0)
+        update_pyproject_toml(
+            pyproject, schedule, update_all=2.0, spec0_support_years=spec0_support_years
+        )
 
-    assert pyproject["project"]["dependencies"] == ["requests >= 2.0"]
+    assert pyproject["project"]["dependencies"] == [dependency]
+    assert pyproject["tool"]["pixi"]["dependencies"] == {package: ">= 1.0"}
+    get.assert_called_once()
+    assert f"Could not fetch {package} releases" in caplog.text
 
 
 def test_update_all_queries_pypi_once_per_package(patch_datetime_now, schedule):
@@ -332,11 +343,30 @@ def test_excluded_python(patch_datetime_now, schedule, current):
     assert pyproject["tool"] == pixi
 
 
-def test_excluding_every_package_is_a_noop(patch_datetime_now, schedule):
+@pytest.mark.parametrize("spec0_support_years", [None, 3])
+def test_excluding_every_package_is_a_noop(
+    patch_datetime_now, schedule, spec0_support_years
+):
     pyproject = _minimal_pyproject("numpy>=1.10.0")
     excluded = [pkg for entry in schedule for pkg in entry["packages"]]
-    update_pyproject_toml(pyproject, schedule, excluded_packages=excluded)
+    with patch.object(spec0_action.requests, "get") as get:
+        update_pyproject_toml(
+            pyproject,
+            schedule,
+            excluded_packages=excluded,
+            spec0_support_years=spec0_support_years,
+        )
     assert pyproject == _minimal_pyproject("numpy>=1.10.0")
+    get.assert_not_called()
+
+
+def test_update_all_includes_unscheduled_core_packages(patch_datetime_now):
+    pyproject = _minimal_pyproject("numpy>=1.0")
+    schedule = [{"start_date": "2025-10-01T00:00:00Z", "packages": {"python": "3.12"}}]
+    with _mock_pypi("1.26") as fallback:
+        update_pyproject_toml(pyproject, schedule, update_all=3)
+    assert pyproject["project"]["dependencies"] == ["numpy>=1.26"]
+    fallback.assert_called_once_with("numpy", 3)
 
 
 @pytest.mark.parametrize("invalid", ["numpy>=1", "numpy[extra]"])
@@ -357,3 +387,263 @@ def test_exclusions_do_not_hide_invalid_schedule(patch_datetime_now):
     pyproject = _minimal_pyproject("numpy>=1.10.0")
     with pytest.raises(RuntimeError, match="Could not find schedule"):
         update_pyproject_toml(pyproject, [], excluded_packages=["numpy", "python"])
+
+
+@pytest.fixture
+def feature_files():
+    # Full history, a source-only release, duplicate distributions, and an old
+    # feature's late wheel. Non-feature versions must never advance the floor.
+    return [
+        {"filename": filename, "upload-time": date}
+        for filename, date in [
+            ("example-1.4.0.tar.gz", "2025-09-01T00:00:00Z"),
+            ("example-1.3.0.tar.gz", "2024-11-25T00:00:00Z"),
+            ("example-1.2.0.tar.gz", "2023-11-25T00:00:00Z"),
+            ("example-1.1.0-py3-none-any.whl", "2025-01-01T00:00:00Z"),
+            ("example-1.1.0.tar.gz", "2022-11-25T00:00:00.000Z"),
+            ("example-1.1.0.zip", "2022-11-26T00:00:00Z"),
+            ("example-1.0.0.tar.gz", "2019-12-31T00:00:00Z"),
+            ("example-1.3.0rc1.tar.gz", "2020-01-01T00:00:00Z"),
+            ("example-1.3.0.dev1.tar.gz", "2020-01-01T00:00:00Z"),
+            ("example-1.3.0.post1.tar.gz", "2020-01-01T00:00:00Z"),
+            ("example-1.3.1.tar.gz", "2020-01-01T00:00:00Z"),
+            ("example-1.3.0.1.tar.gz", "2020-01-01T00:00:00Z"),
+            ("example-1.3.0+local.tar.gz", "2020-01-01T00:00:00Z"),
+        ]
+    ]
+
+
+@pytest.mark.parametrize(
+    ("years", "expected"),
+    [(1, "1.4.0"), (2, "1.3.0"), (3, "1.2.0"), (5, "1.1.0"), (8, "1.0")],
+)
+def test_custom_support_period(
+    patch_datetime_now, schedule, feature_files, years, expected
+):
+    pyproject = _minimal_pyproject("numpy>=1.0")
+    with patch.object(
+        spec0_action.requests, "get", return_value=_pypi_response(feature_files)
+    ) as get:
+        update_pyproject_toml(pyproject, schedule, spec0_support_years=years)
+    assert pyproject["project"]["dependencies"] == [f"numpy>={expected}"]
+    assert pyproject["project"]["requires-python"] == ">=3.12"
+    get.assert_called_once_with(
+        "https://pypi.org/simple/numpy",
+        headers={"Accept": "application/vnd.pypi.simple.v1+json"},
+        timeout=15,
+    )
+
+
+@pytest.mark.parametrize(
+    ("release_date", "years", "now", "expected"),
+    [
+        ("2024-12-31T12:00:00Z", 1, "2025-09-30T23:59:59Z", "numpy >= 1.0"),
+        ("2024-12-31T12:00:00Z", 1, "2025-10-01T00:00:00Z", "numpy>=1.1"),
+        # Crossing leap day makes the anniversary March 31, so the drop is Q1.
+        ("2023-04-01T00:00:00Z", 1, "2023-12-31T23:59:59Z", "numpy >= 1.0"),
+        ("2023-04-01T00:00:00Z", 1, "2024-01-01T00:00:00Z", "numpy>=1.1"),
+        ("2025-09-30T00:00:00Z", 1 / 365, "2025-10-01T00:00:00Z", "numpy>=1.1"),
+    ],
+)
+def test_custom_support_quarter_boundaries(
+    patch_datetime_now, monkeypatch, release_date, years, now, expected
+):
+    monkeypatch.setattr(f"{__name__}.FAKE_TIME", datetime.datetime.fromisoformat(now))
+    pyproject = _minimal_pyproject("numpy >= 1.0")
+    schedule = [{"start_date": "2000-01-01T00:00:00Z", "packages": {"python": "3.12"}}]
+    files = [
+        {"filename": f"numpy-{version}.tar.gz", "upload-time": release_date}
+        for version in ("1.0", "1.1")
+    ]
+    with patch.object(spec0_action.requests, "get", return_value=_pypi_response(files)):
+        update_pyproject_toml(pyproject, schedule, spec0_support_years=years)
+    assert pyproject["project"]["dependencies"] == [expected]
+
+
+@pytest.mark.parametrize("package", ["numpy", "scikit-learn"])
+def test_custom_support_covers_pep_and_pixi_without_core_schedule_entries(
+    patch_datetime_now, feature_files, package
+):
+    # A custom schedule still owns Python and additional packages; membership
+    # in the core policy cannot depend on entries in this schedule.
+    schedule = [
+        {
+            "start_date": "2025-10-01T00:00:00Z",
+            "packages": {"python": "3.12", "custom-pkg": "4.0"},
+        }
+    ]
+    spelling = package.upper().replace("-", "_")
+    pyproject = _minimal_pyproject(
+        f"{spelling}[extra]>=1.0;python_version<'4'", "requests>=1", "custom-pkg>=1"
+    )
+    pyproject["project"]["optional-dependencies"] = {"test": [f"{package}>=1.0"]}
+    pyproject["dependency-groups"] = {"dev": [f"{package.replace('-', '.')}>=1.0"]}
+    deps = {
+        spelling: ">=1.0",
+        "requests": ">=1",
+        "custom-pkg": ">=1",
+        "python": ">=3.9",
+    }
+    version_table = {"version": ">=1.0", "extras": ["test"]}
+    pixi = {
+        "dependencies": deps.copy(),
+        "pypi-dependencies": {package: deepcopy(version_table)},
+    }
+    pixi["feature"] = {"test": {"dependencies": deps.copy()}}
+    pixi["target"] = {
+        "linux-64": {"pypi-dependencies": {package: deepcopy(version_table)}}
+    }
+    pixi["feature"]["test"]["target"] = {
+        "linux-64": {"pypi-dependencies": {package: deepcopy(version_table)}}
+    }
+    pyproject["tool"] = {"pixi": pixi}
+
+    with patch.object(
+        spec0_action.requests, "get", return_value=_pypi_response(feature_files)
+    ) as get:
+        update_pyproject_toml(pyproject, schedule, update_all=2, spec0_support_years=3)
+
+    assert pyproject["project"]["dependencies"] == [
+        f"{spelling}[extra]>=1.2.0;python_version<'4'",
+        "requests>=1.2.0",  # Existing update_all policy selects oldest in window.
+        "custom-pkg>=4.0",
+    ]
+    assert pyproject["project"]["requires-python"] == ">=3.12"
+    assert pyproject["project"]["optional-dependencies"]["test"] == [
+        f"{package}>=1.2.0"
+    ]
+    assert pyproject["dependency-groups"]["dev"] == [
+        f"{package.replace('-', '.')}>=1.2.0"
+    ]
+    expected_deps = {
+        spelling: ">=1.2.0",
+        "requests": ">=1",
+        "custom-pkg": ">=4.0",
+        "python": ">=3.12",
+    }
+    expected_version = {package: {"version": ">=1.2.0", "extras": ["test"]}}
+    assert pixi["dependencies"] == expected_deps
+    assert pixi["feature"]["test"]["dependencies"] == expected_deps
+    assert pixi["pypi-dependencies"] == expected_version
+    assert pixi["target"]["linux-64"]["pypi-dependencies"] == expected_version
+    assert (
+        pixi["feature"]["test"]["target"]["linux-64"]["pypi-dependencies"]
+        == expected_version
+    )
+    assert [c.args[0] for c in get.call_args_list] == [
+        f"https://pypi.org/simple/{package}",
+        "https://pypi.org/simple/requests",
+    ]
+
+
+def test_custom_support_preserves_constraints_and_skips(
+    patch_datetime_now, schedule, feature_files
+):
+    unchanged = [
+        "numpy >= 2",
+        "numpy == 1.0",
+        "numpy >= 1, < 1.2",
+        "scipy @ https://example.invalid/scipy.whl",
+        "scikit_LEARN[tests]",
+        "pandas >= 1",
+        "requests >= 1",
+    ]
+    pyproject = _minimal_pyproject(*unchanged, "NumPy[foo]>=1;python_version<'4'")
+    pyproject["project"]["name"] = "scikit-learn"
+    pixi = {
+        "dependencies": {"numpy": ">= 2", "pandas": ">= 1", "python": ">= 3.9"},
+        "pypi-dependencies": {
+            "scipy": "@ https://example.invalid/scipy.whl",
+            "scikit-learn": {"version": "*", "extras": ["tests"]},
+            "xarray": {"git": "https://example.invalid/xarray.git"},
+        },
+    }
+    pyproject["tool"] = {"pixi": deepcopy(pixi)}
+    with patch.object(
+        spec0_action.requests, "get", return_value=_pypi_response(feature_files)
+    ) as get:
+        update_pyproject_toml(
+            pyproject,
+            schedule,
+            update_all=2,
+            spec0_support_years=3,
+            excluded_packages=["Pandas", "requests", "PYTHON"],
+        )
+    assert pyproject["project"]["dependencies"] == unchanged + [
+        "NumPy[foo]>=1.2.0;python_version<'4'"
+    ]
+    assert pyproject["project"]["requires-python"] == ">=3.11"
+    assert pyproject["tool"]["pixi"] == pixi
+    get.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"files": [{"filename": "numpy-1.0.tar.gz", "upload-time": "invalid"}]},
+        {
+            "files": [
+                {
+                    "filename": "numpy-1.0.post1.tar.gz",
+                    "upload-time": "2020-01-01T00:00:00Z",
+                }
+            ]
+        },
+    ],
+)
+def test_custom_support_unusable_metadata_never_falls_back(
+    patch_datetime_now, schedule, payload
+):
+    pyproject = _minimal_pyproject("numpy >= 1")
+    pyproject["tool"] = {"pixi": {"dependencies": {"numpy": ">= 1"}}}
+    with (
+        patch.object(
+            spec0_action.requests,
+            "get",
+            return_value=Mock(json=Mock(return_value=payload)),
+        ) as get,
+        _mock_pypi() as fallback,
+    ):
+        update_pyproject_toml(pyproject, schedule, update_all=2, spec0_support_years=3)
+    assert pyproject["project"]["dependencies"] == ["numpy >= 1"]
+    assert pyproject["tool"]["pixi"]["dependencies"] == {"numpy": ">= 1"}
+    get.assert_called_once()
+    fallback.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        [],
+        [
+            {"filename": "numpy-1.0.tar.gz", "upload-time": "2000-01-01T00:00:00Z"},
+        ],
+    ],
+)
+def test_custom_support_needs_an_existing_successor(
+    patch_datetime_now, schedule, files
+):
+    pyproject = _minimal_pyproject("numpy >= 0.5")
+    with (
+        patch.object(spec0_action.requests, "get", return_value=_pypi_response(files)),
+        _mock_pypi() as fallback,
+    ):
+        update_pyproject_toml(pyproject, schedule, update_all=2, spec0_support_years=3)
+    assert pyproject["project"]["dependencies"] == ["numpy >= 0.5"]
+    fallback.assert_not_called()
+
+
+@pytest.mark.parametrize("years", [0, -1, float("nan"), float("inf"), 3_000_000])
+def test_invalid_support_period_fails_before_mutation(
+    patch_datetime_now, schedule, years
+):
+    pyproject = _minimal_pyproject("numpy>=1")
+    expected = deepcopy(pyproject)
+    with (
+        patch.object(spec0_action.requests, "get") as get,
+        pytest.raises(ValueError, match="spec0_support_years"),
+    ):
+        update_pyproject_toml(pyproject, schedule, spec0_support_years=years)
+    assert pyproject == expected
+    get.assert_not_called()
