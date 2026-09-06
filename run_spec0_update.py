@@ -1,7 +1,7 @@
-from spec0_action import update_pyproject_toml, read_toml, write_toml, read_schedule
-from pathlib import Path
 from argparse import ArgumentParser
+from pathlib import Path
 
+from spec0_action import read_schedule, read_toml, update_pyproject_toml, write_toml
 
 if __name__ == "__main__":
     parser = ArgumentParser(

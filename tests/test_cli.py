@@ -1,7 +1,7 @@
-from pathlib import Path
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -47,6 +47,7 @@ dependencies = ["numpy >= 1.26", "scikit-learn >= 1.0", "pandas>=1.0"]
         ],
         capture_output=True,
         text=True,
+        check=False,
     )
 
     if excluded_packages.startswith("numpy,"):

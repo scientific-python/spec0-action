@@ -6,9 +6,9 @@ import pytest
 from packaging.version import Version
 from tomlkit import dumps
 
-from spec0_action.parsing import read_schedule, read_toml
-from spec0_action import update_pyproject_toml
 import spec0_action
+from spec0_action import update_pyproject_toml
+from spec0_action.parsing import read_schedule, read_toml
 
 # Fixed time to avoid test results changing over time
 FAKE_TIME = datetime.datetime(2025, 10, 30, 0, 0, 0, tzinfo=datetime.UTC)
@@ -319,6 +319,34 @@ def test_update_all_uses_version_release_date_not_new_file_upload(patch_datetime
         assert spec0_action._get_oldest_version_in_window("example", 2) == Version(
             "2.0.0"
         )
+
+
+@pytest.mark.parametrize(
+    ("stage", "error"),
+    [
+        ("request", spec0_action.requests.ConnectionError("offline")),
+        ("request", spec0_action.requests.Timeout("timed out")),
+        ("status", spec0_action.requests.HTTPError("server error")),
+        (
+            "json",
+            spec0_action.requests.exceptions.JSONDecodeError("invalid JSON", "", 0),
+        ),
+    ],
+)
+def test_update_all_preserves_dependency_on_pypi_failure(
+    patch_datetime_now, schedule, stage, error
+):
+    pyproject = _minimal_pyproject("requests >= 2.0")
+    with patch.object(spec0_action.requests, "get") as get:
+        operation = {
+            "request": get,
+            "status": get.return_value.raise_for_status,
+            "json": get.return_value.json,
+        }[stage]
+        operation.side_effect = error
+        update_pyproject_toml(pyproject, schedule, update_all=2.0)
+
+    assert pyproject["project"]["dependencies"] == ["requests >= 2.0"]
 
 
 def test_update_all_queries_pypi_once_per_package(patch_datetime_now, schedule):

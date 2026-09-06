@@ -1,7 +1,8 @@
-from packaging.version import Version
-from spec0_action.versions import repr_spec_set, tighten_lower_bound
-from packaging.specifiers import SpecifierSet
 import pytest
+from packaging.specifiers import SpecifierSet
+from packaging.version import Version
+
+from spec0_action.versions import repr_spec_set, tighten_lower_bound
 
 
 def test_repr_specset():

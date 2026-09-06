@@ -1,7 +1,9 @@
-from spec0_action.parsing import parse_version_spec, parse_pep_dependency
-from packaging.specifiers import SpecifierSet
-import pytest
 from urllib.parse import urlparse
+
+import pytest
+from packaging.specifiers import SpecifierSet
+
+from spec0_action.parsing import parse_pep_dependency, parse_version_spec
 
 URL = "https://github.com/pypa/pip/archive/1.3.1.zip#sha1=da9234ee9982d4bbb3c72346a6de940a148ea686"
 

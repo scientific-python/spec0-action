@@ -1,10 +1,18 @@
-from functools import cache
-from packaging.specifiers import SpecifierSet
-from typing import Callable, Sequence, Dict
 import datetime
-import requests
+from collections.abc import Callable, Sequence
+from functools import cache
 
-from spec0_action.versions import repr_spec_set, tighten_lower_bound
+import requests
+from packaging.specifiers import SpecifierSet
+from packaging.utils import (
+    InvalidSdistFilename,
+    InvalidWheelFilename,
+    canonicalize_name,
+    parse_sdist_filename,
+    parse_wheel_filename,
+)
+from packaging.version import Version
+
 from spec0_action.parsing import (
     SupportSchedule,
     Url,
@@ -15,16 +23,9 @@ from spec0_action.parsing import (
     read_toml,
     write_toml,
 )
-from packaging.version import Version
-from packaging.utils import (
-    InvalidSdistFilename,
-    InvalidWheelFilename,
-    canonicalize_name,
-    parse_sdist_filename,
-    parse_wheel_filename,
-)
+from spec0_action.versions import repr_spec_set, tighten_lower_bound
 
-__all__ = ["read_schedule", "read_toml", "write_toml", "update_pyproject_toml"]
+__all__ = ["read_schedule", "read_toml", "update_pyproject_toml", "write_toml"]
 
 
 @cache
@@ -32,7 +33,7 @@ def _get_oldest_version_in_window(package: str, years: float) -> Version | None:
     """
     Query PyPI, return oldest non-pre release version uploaded within the last ``years`` years.
     """
-    cutoff = datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(
+    cutoff = datetime.datetime.now(tz=datetime.UTC) - datetime.timedelta(
         days=int(365 * years)
     )
     try:
@@ -43,7 +44,7 @@ def _get_oldest_version_in_window(package: str, years: float) -> Version | None:
         )
         resp.raise_for_status()
         data = resp.json()
-    except Exception:
+    except requests.RequestException:
         return None
     first_uploads: dict[Version, datetime.datetime] = {}
     for f in data.get("files", []):
@@ -117,7 +118,7 @@ def iter_pep_dependency_lists(pyproject_data: dict):
 
 
 def update_dependency_table(
-    dep_table: dict, new_versions: Dict[str, Version], own_name: str | None
+    dep_table: dict, new_versions: dict[str, Version], own_name: str | None
 ):
     for pkg, pkg_data in dep_table.items():
         package_key = canonicalize_name(pkg)
@@ -145,7 +146,7 @@ def update_dependency_table(
 
 
 def update_pixi_dependencies(
-    pixi_tables: dict, new_versions: Dict[str, Version], own_name: str | None
+    pixi_tables: dict, new_versions: dict[str, Version], own_name: str | None
 ):
     for key in ("dependencies", "pypi-dependencies"):
         dep_table = pixi_tables.get(key)
@@ -194,7 +195,7 @@ def update_pyproject_toml(
         ),
         key=lambda s: datetime.datetime.fromisoformat(s["start_date"]),
     )
-    new_version: Dict[str, Version] = {}
+    new_version: dict[str, Version] = {}
     for schedule in applicable:
         # Fill in the latest known requirement (schedule is sorted, newer entries overwrite older)
         for pkg, version in schedule["packages"].items():

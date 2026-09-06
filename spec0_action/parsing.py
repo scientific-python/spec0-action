@@ -1,12 +1,13 @@
-from typing import TypeAlias
-from urllib.parse import ParseResult, urlparse
-from tomlkit import dumps, loads
 import json
-from packaging.specifiers import InvalidSpecifier, SpecifierSet
-from packaging.version import InvalidVersion, Version
-from typing import Dict, Sequence, Tuple, TypedDict
+from collections.abc import Sequence
 from pathlib import Path
 from re import compile
+from typing import TypeAlias, TypedDict
+from urllib.parse import ParseResult, urlparse
+
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.version import InvalidVersion, Version
+from tomlkit import dumps, loads
 
 # We won't actually do anything with URLs we just need to detect them
 Url: TypeAlias = ParseResult
@@ -19,7 +20,7 @@ PEP_PACKAGE_IDENT_RE = compile(
 
 class SupportSchedule(TypedDict):
     start_date: str
-    packages: Dict[str, str]
+    packages: dict[str, str]
 
 
 def parse_version_spec(s: str) -> SpecifierSet:
@@ -65,7 +66,7 @@ def read_schedule(path: Path | str) -> Sequence[SupportSchedule]:
 
 def parse_pep_dependency(
     dep_str: str,
-) -> Tuple[str, str | None, SpecifierSet | Url | None, str | None]:
+) -> tuple[str, str | None, SpecifierSet | Url | None, str | None]:
     match = PEP_PACKAGE_IDENT_RE.match(dep_str)
     if match is None:
         raise ValueError("Could not find any valid python package identifier")

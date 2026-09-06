@@ -1,11 +1,10 @@
-import requests
-import json
 import collections
-from datetime import datetime, timedelta
+import json
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
-from packaging.version import Version, InvalidVersion
-
+import requests
+from packaging.version import InvalidVersion, Version
 
 PY_RELEASES = {
     "3.8": "Oct 14, 2019",
@@ -28,16 +27,16 @@ CORE_PACKAGES = [
     "xarray",
     "zarr",
 ]
-PLUS_36_MONTHS = timedelta(days=int(365 * 3))
-PLUS_24_MONTHS = timedelta(days=int(365 * 2))
+PLUS_36_MONTHS = timedelta(days=365 * 3)
+PLUS_24_MONTHS = timedelta(days=365 * 2)
 
 # Release data
 # We put the cutoff at 3 quarters ago - we do not use "just" -9 months
 # to avoid the content of the quarter to change depending on when we
 # generate this file during the current quarter.
-CURRENT_DATE = pd.Timestamp.now()
+CURRENT_DATE = pd.Timestamp.now(tz=UTC)
 CURRENT_QUARTER_START = pd.Timestamp(
-    CURRENT_DATE.year, (CURRENT_DATE.quarter - 1) * 3 + 1, 1
+    CURRENT_DATE.year, (CURRENT_DATE.quarter - 1) * 3 + 1, 1, tz=UTC
 )
 CUTOFF = CURRENT_QUARTER_START - pd.DateOffset(months=9)
 
@@ -65,14 +64,16 @@ def get_release_dates(package, support_time=PLUS_24_MONTHS):
         release_date = None
         for format in ["%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ"]:
             try:
-                release_date = datetime.strptime(f["upload-time"], format)
+                release_date = datetime.strptime(f["upload-time"], format).replace(
+                    tzinfo=UTC
+                )
             except ValueError as e:
                 print(f"Error parsing invalid date: {e}")
         if not release_date:
             continue
         file_date[version].append(release_date)
-    release_date = {v: min(file_date[v]) for v in file_date}
-    for ver, release_date in sorted(release_date.items()):
+    release_dates = {v: min(file_date[v]) for v in file_date}
+    for ver, release_date in sorted(release_dates.items()):
         drop_date = release_date + support_time
         if drop_date >= CUTOFF:
             releases[ver] = {
@@ -85,8 +86,13 @@ def get_release_dates(package, support_time=PLUS_24_MONTHS):
 package_releases = {
     "python": {
         version: {
-            "release_date": datetime.strptime(release_date, "%b %d, %Y"),
-            "drop_date": datetime.strptime(release_date, "%b %d, %Y") + PLUS_36_MONTHS,
+            "release_date": datetime.strptime(release_date, "%b %d, %Y").replace(
+                tzinfo=UTC
+            ),
+            "drop_date": datetime.strptime(release_date, "%b %d, %Y").replace(
+                tzinfo=UTC
+            )
+            + PLUS_36_MONTHS,
         }
         for version, release_date in PY_RELEASES.items()
     }
@@ -113,10 +119,10 @@ title Support Window"""
     )
     for name, releases in package_releases.items():
         fh.write(f"\n\nsection {name}")
-        for version, dates in releases.items():
-            fh.write(
-                f"\n{version} : {dates['release_date'].strftime('%Y-%m-%d')},{dates['drop_date'].strftime('%Y-%m-%d')}"
-            )
+        fh.writelines(
+            f"\n{version} : {dates['release_date'].strftime('%Y-%m-%d')},{dates['drop_date'].strftime('%Y-%m-%d')}"
+            for version, dates in releases.items()
+        )
     fh.write("\n")
 
 # Print drop schedule
@@ -132,7 +138,7 @@ for k, versions in package_releases.items():
             )
         )
 df = pd.DataFrame(data, columns=["package", "version", "release", "drop"])
-df["quarter"] = df["drop"].dt.to_period("Q")
+df["quarter"] = df["drop"].dt.tz_localize(None).dt.to_period("Q")
 df["new_min_version"] = (
     df[["package", "version", "quarter"]].groupby("package").shift(-1)["version"]
 )
@@ -208,7 +214,7 @@ with open("schedule.md", "w") as fh:
     # as we might have filtered some of the packages out depending on
     # when we ran the script.
     tb = []
-    for quarter in list(sorted(set(dq.index.get_level_values(0))))[1:]:
+    for quarter in sorted(set(dq.index.get_level_values(0)))[1:]:
         tb.append(make_quarter(quarter, dq))
     fh.write("\n\n".join(tb))
     fh.write("\n")
