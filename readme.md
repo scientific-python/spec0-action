@@ -31,7 +31,7 @@ jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - uses: scientific-python/spec0-action@8b8b76f254aecce36e6f07de7dde174cb3cafa81 # v1.3
+      - uses: scientific-python/spec0-action@7c875bc60508e9aab2bdb851e99bfcc53b283e94 # v1.6
         with:
           update_all: 2 # also bump non-SPEC0 deps older than 2 years
 ```
