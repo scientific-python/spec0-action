@@ -35,11 +35,15 @@ inputs:
     description: "GitHub token with pull-requests write permission to create pull requests. Defaults to the built-in GITHUB_TOKEN."
     required: false
   update_all:
-    description: "If set, also update all non-SPEC0 dependencies to versions released within the last N years (e.g., 2)."
+    description: "If set, update PEP dependencies without an applicable schedule floor or explicit core-package support period to versions first released within the last N years (e.g., 2)."
     required: false
     default: ""
   excluded_packages:
     description: "Comma- or whitespace-separated package names to leave unchanged, including with update_all. Use python to exclude Python requirements."
+    required: false
+    default: ""
+  spec0_support_years:
+    description: "If set, compute SPEC 0 core-package floors from PyPI using this many years of support (e.g., 3). Python still follows the supplied schedule; exclusions take precedence."
     required: false
     default: ""
 runs:
@@ -70,6 +74,7 @@ runs:
         PROJECT_FILE_NAME: ${{ inputs.project_file_name }}
         SCHEDULE_INPUT: ${{ inputs.schedule_path }}
         UPDATE_ALL: ${{ inputs.update_all }}
+        SPEC0_SUPPORT_YEARS: ${{ inputs.spec0_support_years }}
         EXCLUDED_PACKAGES: ${{ inputs.excluded_packages }}
       run: |
         set -e
@@ -79,11 +84,14 @@ runs:
           SCHEDULE_PATH="${GITHUB_WORKSPACE}/schedule.json"
         fi
         echo "Updating ${PROJECT_FILE_NAME} using schedule ${SCHEDULE_PATH}"
-        UPDATE_ALL_ARGS=()
+        UPDATE_ARGS=()
         if [ -n "$UPDATE_ALL" ]; then
-          UPDATE_ALL_ARGS=(--update-all "$UPDATE_ALL")
+          UPDATE_ARGS+=(--update-all "$UPDATE_ALL")
         fi
-        pixi run --manifest-path "${GITHUB_ACTION_PATH}/pyproject.toml" update-dependencies "${GITHUB_WORKSPACE}/${PROJECT_FILE_NAME}" "$SCHEDULE_PATH" --excluded-packages "$EXCLUDED_PACKAGES" "${UPDATE_ALL_ARGS[@]}"
+        if [ -n "$SPEC0_SUPPORT_YEARS" ]; then
+          UPDATE_ARGS+=(--spec0-support-years "$SPEC0_SUPPORT_YEARS")
+        fi
+        pixi run --manifest-path "${GITHUB_ACTION_PATH}/pyproject.toml" update-dependencies "${GITHUB_WORKSPACE}/${PROJECT_FILE_NAME}" "$SCHEDULE_PATH" --excluded-packages "$EXCLUDED_PACKAGES" "${UPDATE_ARGS[@]}"
     - name: Changes
       id: changes
       shell: bash

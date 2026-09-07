@@ -19,8 +19,14 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        excluded_packages: ["", "numpy,\nscikit-learn"]
-    name: "Run action with exclusions: ${{ matrix.excluded_packages }}"
+        include:
+          - excluded_packages: ""
+            spec0_support_years: ""
+          - excluded_packages: "numpy,\nscikit-learn"
+            spec0_support_years: ""
+          - excluded_packages: "ipython matplotlib networkx numpy pandas scikit-image scikit-learn scipy xarray zarr python"
+            spec0_support_years: "3"
+    name: "Run action with support years: '${{ matrix.spec0_support_years }}', exclusions: '${{ matrix.excluded_packages }}'"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -31,10 +37,16 @@ jobs:
           create_pr: false
           schedule_path: tests/test_data/test_schedule.json
           excluded_packages: ${{ matrix.excluded_packages }}
+          spec0_support_years: ${{ matrix.spec0_support_years }}
       - name: Check dependency updates
         env:
           EXCLUDED_PACKAGES: ${{ matrix.excluded_packages }}
+          SPEC0_SUPPORT_YEARS: ${{ matrix.spec0_support_years }}
         run: |
+          if [ -n "$SPEC0_SUPPORT_YEARS" ]; then
+            git diff --exit-code -- tests/test_data/pyproject.toml
+            exit 0
+          fi
           git diff -U0 -- tests/test_data/pyproject.toml > changes.diff
           grep -q '^+.*pandas' changes.diff
           if [ -n "$EXCLUDED_PACKAGES" ]; then
