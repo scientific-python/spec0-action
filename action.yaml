@@ -46,12 +46,40 @@ inputs:
     description: "If set, compute SPEC 0 core-package floors from PyPI using this many years of support (e.g., 3). Python still follows the supplied schedule; exclusions take precedence."
     required: false
     default: ""
+  mode:
+    description: "'update' (default) updates the lower bounds in the project file and can open a PR. 'constraints' only writes a constraints file with exact SPEC 0 minimum versions, to install and test the oldest supported versions in CI."
+    required: false
+    default: "update"
+  packages:
+    description: "constraints mode: comma- or whitespace-separated packages to pin, e.g. 'numpy scipy pandas'. Include python to get its minimum version in the outputs."
+    required: false
+    default: ""
+  constraints_file:
+    description: "constraints mode: path of the constraints file to write, relative to the workspace."
+    required: false
+    default: "constraints-spec0.txt"
+  reference_date:
+    description: "constraints mode: date (YYYY-MM-DD) to compute the floors for. Defaults to today."
+    required: false
+    default: ""
+outputs:
+  constraints_file:
+    description: "constraints mode: path of the written constraints file."
+    value: ${{ steps.constraints.outputs.constraints_file }}
+  versions:
+    description: "constraints mode: JSON mapping of package to minimum version."
+    value: ${{ steps.constraints.outputs.versions }}
+  python_version:
+    description: "constraints mode: minimum Python version, if python was requested."
+    value: ${{ steps.constraints.outputs.python_version }}
 runs:
   using: "composite"
   steps:
     - name: Checkout code
+      if: ${{ inputs.mode != 'constraints' }}
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Set up Git
+      if: ${{ inputs.mode != 'constraints' }}
       shell: bash
       run: |
         git config user.name "Scientific Python [bot]"
@@ -69,6 +97,7 @@ runs:
         latest: true
         fileName: "schedule.json"
     - name: Run update script
+      if: ${{ inputs.mode != 'constraints' }}
       shell: bash
       env:
         PROJECT_FILE_NAME: ${{ inputs.project_file_name }}
@@ -92,7 +121,29 @@ runs:
           UPDATE_ARGS+=(--spec0-support-years "$SPEC0_SUPPORT_YEARS")
         fi
         pixi run --manifest-path "${GITHUB_ACTION_PATH}/pyproject.toml" update-dependencies "${GITHUB_WORKSPACE}/${PROJECT_FILE_NAME}" "$SCHEDULE_PATH" --excluded-packages "$EXCLUDED_PACKAGES" "${UPDATE_ARGS[@]}"
+    - name: Write constraints file
+      if: ${{ inputs.mode == 'constraints' }}
+      id: constraints
+      shell: bash
+      env:
+        SCHEDULE_INPUT: ${{ inputs.schedule_path }}
+        PACKAGES: ${{ inputs.packages }}
+        CONSTRAINTS_FILE: ${{ inputs.constraints_file }}
+        REFERENCE_DATE: ${{ inputs.reference_date }}
+      run: |
+        set -e
+        if [ -n "$SCHEDULE_INPUT" ]; then
+          SCHEDULE_PATH="${GITHUB_WORKSPACE}/${SCHEDULE_INPUT}"
+        else
+          SCHEDULE_PATH="${GITHUB_WORKSPACE}/schedule.json"
+        fi
+        ARGS=(--packages "$PACKAGES" --output "${GITHUB_WORKSPACE}/${CONSTRAINTS_FILE}")
+        if [ -n "$REFERENCE_DATE" ]; then
+          ARGS+=(--reference-date "$REFERENCE_DATE")
+        fi
+        pixi run --manifest-path "${GITHUB_ACTION_PATH}/pyproject.toml" write-constraints "$SCHEDULE_PATH" "${ARGS[@]}"
     - name: Changes
+      if: ${{ inputs.mode != 'constraints' }}
       id: changes
       shell: bash
       env:
@@ -106,7 +157,7 @@ runs:
           echo "changes_detected=true"  >> "$GITHUB_OUTPUT"
         fi
     - name: Create Pull Request
-      if: ${{ fromJSON(inputs.create_pr) && fromJSON(steps.changes.outputs.changes_detected) }}
+      if: ${{ inputs.mode != 'constraints' && fromJSON(inputs.create_pr) && fromJSON(steps.changes.outputs.changes_detected) }}
       uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
       with:
         token: ${{ inputs.token || github.token }}

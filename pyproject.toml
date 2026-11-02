@@ -19,6 +19,7 @@ spec0-action= { path = ".", editable = true }
 
 [tool.pixi.tasks]
 update-dependencies = { cmd = ["python", "run_spec0_update.py"] }
+write-constraints = { cmd = ["python", "run_spec0_constraints.py"] }
 generate-schedule = { cmd = ["python", "spec0_versions.py"] }
 
 [tool.pixi.feature.test.tasks]

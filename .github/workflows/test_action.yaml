@@ -54,3 +54,29 @@ jobs:
           else
             grep -q '^+.*numpy' changes.diff
           fi
+
+  constraints:
+    runs-on: ubuntu-latest
+    name: "Run action in constraints mode"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Write constraints using local action
+        id: spec0
+        uses: ./
+        with:
+          mode: constraints
+          packages: numpy scipy pandas python
+          schedule_path: tests/test_data/test_schedule.json
+          reference_date: "2025-04-01"
+      - name: Check constraints file and outputs
+        env:
+          CONSTRAINTS_FILE: ${{ steps.spec0.outputs.constraints_file }}
+          VERSIONS: ${{ steps.spec0.outputs.versions }}
+          PYTHON_VERSION: ${{ steps.spec0.outputs.python_version }}
+        run: |
+          printf 'numpy==1.26.0\nscipy==1.12.0\npandas==2.1.0\n' > expected.txt
+          diff expected.txt "$CONSTRAINTS_FILE"
+          test "$PYTHON_VERSION" = "3.11"
+          echo "$VERSIONS" | python -c 'import json, sys; assert json.load(sys.stdin)["numpy"] == "1.26.0"'
+          git diff --exit-code

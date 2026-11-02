@@ -96,6 +96,43 @@ If PyPI cannot be reached, the affected dependency stays unchanged with a warnin
 The CLI takes `--spec0-support-years 3` and the Python API `spec0_support_years=3`.
 Extras such as `xarray[io]>=2026.5.1` and environment markers are preserved when bounds change.
 
+### Testing the oldest supported versions in CI
+
+With `mode: constraints` the action does not touch your project file or open a PR.
+It writes a constraints file with exact pins of the SPEC 0 minimum versions, so a CI job can install and test the oldest supported combination:
+
+```yaml
+- uses: actions/checkout@v7
+- uses: scientific-python/spec0-action@<commit>
+  id: spec0
+  with:
+    mode: constraints
+    packages: numpy scipy pandas scikit-learn matplotlib python
+- uses: actions/setup-python@v6
+  with:
+    python-version: ${{ steps.spec0.outputs.python_version }}
+- run: |
+    pip install -c constraints-spec0.txt .
+    pytest
+```
+
+The pins are exact (`numpy==2.3.0`), because with `numpy>=2.3.0` the installer would pick the newest release and the minimum would never be tested.
+Constraints only restrict versions; they do not install the listed packages by themselves.
+
+| Input              | Default                 | Description                                                                              |
+| ------------------ | ----------------------- | ---------------------------------------------------------------------------------------- |
+| `mode`             | `update`                | Set to `constraints` to only write the constraints file                                  |
+| `packages`         | —                       | Comma- or whitespace-separated packages to pin; add `python` to get its minimum          |
+| `constraints_file` | `constraints-spec0.txt` | Path of the file to write, relative to the workspace                                     |
+| `reference_date`   | today                   | Date (`YYYY-MM-DD`) to compute the floors for, for reproducible runs                     |
+| `schedule_path`    | —                       | Local `schedule.json`, relative to the repository root; uses the latest release if unset |
+
+Outputs: `constraints_file`, `versions` (JSON mapping of package to minimum version) and `python_version` (empty unless `python` is requested).
+The run fails with a clear message if the schedule has no floor for a requested package on the reference date, or if the schedule data is invalid.
+A local `schedule_path` needs the repository to be checked out first.
+
+The CLI is `python run_spec0_constraints.py schedule.json --packages "numpy scipy" --reference-date 2026-10-01`.
+
 ## Limitations
 
 1. The action only tightens lower bounds and leaves upper bounds untouched.
