@@ -96,6 +96,32 @@ If PyPI cannot be reached, the affected dependency stays unchanged with a warnin
 The CLI takes `--spec0-support-years 3` and the Python API `spec0_support_years=3`.
 Extras such as `xarray[io]>=2026.5.1` and environment markers are preserved when bounds change.
 
+### Testing the floors in CI
+
+The bounds are only useful if the project still works with them.
+To test the lowest supported versions, run the action without opening a PR and let `uv` install the lowest versions that satisfy the updated bounds:
+
+```yaml
+jobs:
+  test-oldest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: scientific-python/spec0-action@<commit>
+        with:
+          create_pr: false
+          update_all: 2
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13" # the SPEC 0 Python floor
+      - uses: astral-sh/setup-uv@v7
+      - run: uv pip install --system --resolution lowest-direct . --group test
+      - run: pytest
+```
+
+`update_all` matters here: `--resolution lowest-direct` installs the lowest version of every direct dependency, so a dependency without a lower bound would resolve to a very old release.
+Other tools that install the lowest allowed versions, such as [minimum-dependencies](https://pypi.org/project/minimum-dependencies/) or `pip-compile`, work the same way after the update.
+
 ## Limitations
 
 1. The action only tightens lower bounds and leaves upper bounds untouched.
