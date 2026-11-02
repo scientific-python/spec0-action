@@ -96,6 +96,16 @@ If PyPI cannot be reached, the affected dependency stays unchanged with a warnin
 The CLI takes `--spec0-support-years 3` and the Python API `spec0_support_years=3`.
 Extras such as `xarray[io]>=2026.5.1` and environment markers are preserved when bounds change.
 
+### Testing minimum versions
+
+Since the lower bounds will increase with time, it is useful to make sure your project continues at this lower version bounds.
+
+There are at least two ways to do this:
+
+- [minimum-dependencies](https://pypi.org/project/minimum-dependencies/)
+- Calling some form of `uv pip install --resolution lowest-direct` to have `uv` work out the floor and then you can use that enviroment to run your unit tests.
+  `--resolution lowest-direct` installs the lowest version of every direct dependency, so a dependency without a lower bound would resolve to maybe the very oldest release.
+
 ## Limitations
 
 1. The action only tightens lower bounds and leaves upper bounds untouched.
