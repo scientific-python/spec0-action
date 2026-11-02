@@ -96,31 +96,15 @@ If PyPI cannot be reached, the affected dependency stays unchanged with a warnin
 The CLI takes `--spec0-support-years 3` and the Python API `spec0_support_years=3`.
 Extras such as `xarray[io]>=2026.5.1` and environment markers are preserved when bounds change.
 
-### Testing the floors in CI
+### Testing minimum versions
 
-The bounds are only useful if the project still works with them.
-To test the lowest supported versions, run the action without opening a PR and let `uv` install the lowest versions that satisfy the updated bounds:
+Since the lower bounds will increase with time, it is useful to make sure your project continues at this lower version bounds.
 
-```yaml
-jobs:
-  test-oldest:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: scientific-python/spec0-action@<commit>
-        with:
-          create_pr: false
-          update_all: 2
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.13" # the SPEC 0 Python floor
-      - uses: astral-sh/setup-uv@v7
-      - run: uv pip install --system --resolution lowest-direct . --group test
-      - run: pytest
-```
+There are at least two ways to do this:
 
-`update_all` matters here: `--resolution lowest-direct` installs the lowest version of every direct dependency, so a dependency without a lower bound would resolve to a very old release.
-Other tools that install the lowest allowed versions, such as [minimum-dependencies](https://pypi.org/project/minimum-dependencies/) or `pip-compile`, work the same way after the update.
+- [minimum-dependencies](https://pypi.org/project/minimum-dependencies/)
+- Calling some form of `uv pip install --resolution lowest-direct` to have `uv` work out the floor and then you can use that enviroment to run your unit tests.
+  `--resolution lowest-direct` installs the lowest version of every direct dependency, so a dependency without a lower bound would resolve to maybe the very oldest release.
 
 ## Limitations
 
